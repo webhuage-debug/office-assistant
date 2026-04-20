@@ -8,6 +8,11 @@ export interface NodeTestRequest {
   triggerSource?: string;
 }
 
+export interface NodeReportExportInput {
+  filters: NodeListFilters;
+  month?: string;
+}
+
 export interface NodeListFilters {
   keyword?: string;
   sourceLabel?: string;

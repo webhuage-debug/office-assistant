@@ -2,9 +2,9 @@ use crate::config::ResolvedAppConfig;
 use crate::db::open_connection;
 use crate::models::{
   CadDocumentCreateInput, CadDocumentSummary, CadParseSummary, CadPipelineStats, DashboardStats, ExportResult,
-  NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats, NodeTestRequest,
-  NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, ProjectDetail, ProjectFilters, ProjectSummary,
-  ProjectUpsertInput, NodeQualityStats, NodeQualitySummary,
+  NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats, NodeReportExportInput,
+  NodeTestRequest, NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, ProjectDetail, ProjectFilters,
+  ProjectSummary, ProjectUpsertInput, NodeQualityStats, NodeQualitySummary,
 };
 use crate::repositories::{backup, cad, nodes, projects};
 use crate::state::AppState;
@@ -214,4 +214,20 @@ pub fn import_json_backup(state: State<'_, AppState>, content: String) -> Result
     .map_err(|error| error.to_string())?;
   backup::import_json_backup(&mut connection, &content, std::path::Path::new(&state.config.database_path))
     .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn export_node_monthly_report(
+  state: State<'_, AppState>,
+  input: NodeReportExportInput,
+) -> Result<ExportResult, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::export_node_monthly_report(
+    &connection,
+    std::path::Path::new(&state.config.export_dir),
+    &state.config.app_name,
+    &input,
+  )
+  .map_err(|error| error.to_string())
 }

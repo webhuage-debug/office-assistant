@@ -1,9 +1,11 @@
 import { callBackend } from "@/services/backendClient";
+import type { ExportResult } from "@/types/app";
 import type {
   NodeEntrySummary,
   NodeImportBatchSummary,
   NodeImportInput,
   NodeListFilters,
+  NodeReportExportInput,
   NodeTestRequest,
   NodeTestResultSummary,
   NodeTestRunDetail,
@@ -50,4 +52,8 @@ export async function listNodeQualityRankings(
 
 export async function getNodeQualityStats(filters: NodeListFilters = {}): Promise<NodeQualityStats> {
   return callBackend<NodeQualityStats>("get_node_quality_stats", { filters });
+}
+
+export async function exportNodeMonthlyReport(input: NodeReportExportInput): Promise<ExportResult> {
+  return callBackend<ExportResult>("export_node_monthly_report", { input });
 }

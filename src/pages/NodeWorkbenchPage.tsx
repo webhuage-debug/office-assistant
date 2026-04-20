@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { NodeEntryTable } from "@/components/NodeEntryTable";
 import { NodeImportForm } from "@/components/NodeImportForm";
 import { NodeQualityTable } from "@/components/NodeQualityTable";
+import { NodeReportExportPanel } from "@/components/NodeReportExportPanel";
 import { NodeTestResultTable } from "@/components/NodeTestResultTable";
 import { NodeTestRunTable } from "@/components/NodeTestRunTable";
 import { PageHeader } from "@/components/PageHeader";
@@ -439,6 +440,8 @@ export function NodeWorkbenchPage() {
 
         <NodeQualityTable rows={qualityRows} />
       </section>
+
+      <NodeReportExportPanel config={config} keyword={keyword} />
     </div>
   );
 }

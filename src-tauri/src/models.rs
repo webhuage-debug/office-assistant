@@ -235,6 +235,13 @@ pub struct NodeTestRequest {
   pub trigger_source: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeReportExportInput {
+  pub filters: NodeListFilters,
+  pub month: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeTestRunSummary {

@@ -1,9 +1,11 @@
 use crate::models::{
-  NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats, NodeTestRequest,
-  NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, NodeQualityStats, NodeQualitySummary,
+  ExportResult, NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats,
+  NodeReportExportInput, NodeTestRequest, NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, NodeQualityStats,
+  NodeQualitySummary,
 };
 use anyhow::{anyhow, Context, Result};
-use chrono::Utc;
+use chrono::{Datelike, NaiveDate, Utc};
+use csv::Writer;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::Deserialize;
 use std::convert::TryFrom;
@@ -913,6 +915,44 @@ struct NodeQualityAggregateRow {
   last_test_at: String,
 }
 
+#[derive(Debug)]
+struct MonthRange {
+  label: String,
+  start_iso: String,
+  end_iso: String,
+}
+
+fn parse_month_range(month: Option<&str>) -> Result<MonthRange> {
+  let now = Utc::now().date_naive();
+  let label = month
+    .map(|value| value.trim())
+    .filter(|value| !value.is_empty())
+    .map(|value| value.to_string())
+    .unwrap_or_else(|| format!("{:04}-{:02}", now.year(), now.month()));
+
+  let start_date = NaiveDate::parse_from_str(&format!("{label}-01"), "%Y-%m-%d")
+    .with_context(|| format!("无效的月份格式: {label}"))?;
+  let next_date = if start_date.month() == 12 {
+    NaiveDate::from_ymd_opt(start_date.year() + 1, 1, 1).ok_or_else(|| anyhow!("无法计算月份范围"))?
+  } else {
+    NaiveDate::from_ymd_opt(start_date.year(), start_date.month() + 1, 1).ok_or_else(|| anyhow!("无法计算月份范围"))?
+  };
+
+  Ok(MonthRange {
+    label,
+    start_iso: start_date
+      .and_hms_opt(0, 0, 0)
+      .ok_or_else(|| anyhow!("无法生成月份起始时间"))?
+      .and_utc()
+      .to_rfc3339(),
+    end_iso: next_date
+      .and_hms_opt(0, 0, 0)
+      .ok_or_else(|| anyhow!("无法生成月份结束时间"))?
+      .and_utc()
+      .to_rfc3339(),
+  })
+}
+
 fn row_to_node_quality_aggregate(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeQualityAggregateRow> {
   Ok(NodeQualityAggregateRow {
     node_id: row.get("node_id")?,
@@ -1021,7 +1061,11 @@ fn build_quality_summary(row: NodeQualityAggregateRow) -> NodeQualitySummary {
   }
 }
 
-fn collect_node_quality_rankings(connection: &Connection, filters: &NodeListFilters) -> Result<Vec<NodeQualitySummary>> {
+fn collect_node_quality_rankings(
+  connection: &Connection,
+  filters: &NodeListFilters,
+  month_range: Option<&MonthRange>,
+) -> Result<Vec<NodeQualitySummary>> {
   let mut query = String::from(
     r#"
     SELECT
@@ -1076,6 +1120,12 @@ fn collect_node_quality_rankings(connection: &Connection, filters: &NodeListFilt
     values.push(format!("%{protocol}%"));
   }
 
+  if let Some(range) = month_range {
+    query.push_str(" AND r.created_at >= ? AND r.created_at < ?");
+    values.push(range.start_iso.clone());
+    values.push(range.end_iso.clone());
+  }
+
   query.push_str(
     r#"
     GROUP BY n.id, n.node_name, n.protocol, n.host, n.port, n.source_label, b.source_file_name
@@ -1111,12 +1161,12 @@ fn collect_node_quality_rankings(connection: &Connection, filters: &NodeListFilt
 
 pub fn list_node_quality_rankings(connection: &Connection, filters: &NodeListFilters, limit: i64) -> Result<Vec<NodeQualitySummary>> {
   let limit = if limit <= 0 { 10 } else { limit.min(100) } as usize;
-  let rankings = collect_node_quality_rankings(connection, filters)?;
+  let rankings = collect_node_quality_rankings(connection, filters, None)?;
   Ok(rankings.into_iter().take(limit).collect())
 }
 
 pub fn quality_stats(connection: &Connection, filters: &NodeListFilters) -> Result<NodeQualityStats> {
-  let rankings = collect_node_quality_rankings(connection, filters)?;
+  let rankings = collect_node_quality_rankings(connection, filters, None)?;
   if rankings.is_empty() {
     return Ok(NodeQualityStats {
       total_ranked_nodes: 0,
@@ -1145,5 +1195,282 @@ pub fn quality_stats(connection: &Connection, filters: &NodeListFilters) -> Resu
     stable_nodes,
     average_score,
     top_score,
+  })
+}
+
+fn escape_markdown_cell(value: &str) -> String {
+  value.replace('|', "\\|").replace('\n', " ").replace('\r', " ")
+}
+
+fn summarize_quality_filters(filters: &NodeListFilters) -> String {
+  let mut parts = Vec::new();
+
+  if let Some(keyword) = filters
+    .keyword
+    .as_ref()
+    .map(|value| value.trim())
+    .filter(|value| !value.is_empty())
+  {
+    parts.push(format!("关键字={keyword}"));
+  }
+
+  if let Some(source_label) = filters
+    .source_label
+    .as_ref()
+    .map(|value| value.trim())
+    .filter(|value| !value.is_empty())
+  {
+    parts.push(format!("来源标签={source_label}"));
+  }
+
+  if let Some(protocol) = filters
+    .protocol
+    .as_ref()
+    .map(|value| value.trim())
+    .filter(|value| !value.is_empty())
+  {
+    parts.push(format!("协议={protocol}"));
+  }
+
+  if parts.is_empty() {
+    "全部已授权节点".to_string()
+  } else {
+    parts.join(" / ")
+  }
+}
+
+fn aggregate_quality_metrics(rankings: &[NodeQualitySummary]) -> (i64, i64, i64, i64, i64, i64, i64) {
+  let total_ranked_nodes = rankings.len() as i64;
+  let recommended_nodes = rankings.iter().filter(|item| item.score >= 70).count() as i64;
+  let excellent_nodes = rankings.iter().filter(|item| item.score >= 85).count() as i64;
+  let stable_nodes = rankings
+    .iter()
+    .filter(|item| item.success_rate >= 0.8 && item.total_tests >= 3)
+    .count() as i64;
+  let average_score = if rankings.is_empty() {
+    0
+  } else {
+    (rankings.iter().map(|item| item.score).sum::<i64>() as f64 / total_ranked_nodes as f64).round() as i64
+  };
+  let top_score = rankings.first().map(|item| item.score).unwrap_or(0);
+  let total_tests = rankings.iter().map(|item| item.total_tests).sum::<i64>();
+
+  (
+    total_ranked_nodes,
+    recommended_nodes,
+    excellent_nodes,
+    stable_nodes,
+    average_score,
+    top_score,
+    total_tests,
+  )
+}
+
+fn build_monthly_report_markdown(
+  month_range: &MonthRange,
+  filters: &NodeListFilters,
+  rankings: &[NodeQualitySummary],
+  generated_at: &str,
+) -> String {
+  let (
+    total_ranked_nodes,
+    recommended_nodes,
+    excellent_nodes,
+    stable_nodes,
+    average_score,
+    top_score,
+    total_tests,
+  ) = aggregate_quality_metrics(rankings);
+  let total_success = rankings.iter().map(|item| item.success_count).sum::<i64>();
+  let total_failure = rankings.iter().map(|item| item.failure_count).sum::<i64>();
+  let filter_summary = summarize_quality_filters(filters);
+  let keep_rows: Vec<&NodeQualitySummary> = rankings.iter().filter(|item| item.score >= 70).collect();
+  let cleanup_rows: Vec<&NodeQualitySummary> = rankings.iter().filter(|item| item.score < 50).collect();
+
+  let mut markdown = String::new();
+  markdown.push_str(&format!("# 节点月报 - {}\n\n", month_range.label));
+  markdown.push_str("## 报告概览\n\n");
+  markdown.push_str(&format!("- 生成时间: {}\n", generated_at));
+  markdown.push_str(&format!("- 筛选范围: {}\n", filter_summary));
+  markdown.push_str(&format!("- 统计节点: {}\n", total_ranked_nodes));
+  markdown.push_str(&format!("- 总测试次数: {}\n", total_tests));
+  markdown.push_str(&format!("- 成功次数: {}\n", total_success));
+  markdown.push_str(&format!("- 失败次数: {}\n", total_failure));
+  markdown.push_str(&format!("- 推荐节点: {}\n", recommended_nodes));
+  markdown.push_str(&format!("- 优选节点: {}\n", excellent_nodes));
+  markdown.push_str(&format!("- 稳定节点: {}\n", stable_nodes));
+  markdown.push_str(&format!("- 平均评分: {}\n", average_score));
+  markdown.push_str(&format!("- 最高评分: {}\n\n", top_score));
+
+  markdown.push_str("## 推荐节点清单\n\n");
+  if keep_rows.is_empty() {
+    markdown.push_str("本月没有达到推荐阈值的节点。\n\n");
+  } else {
+    markdown.push_str("| 排名 | 节点 | 协议 | 地址 | 测试次数 | 成功率 | 平均延迟 | 分数 | 等级 | 最近测试 |\n");
+    markdown.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
+    for (index, row) in keep_rows.iter().enumerate() {
+      let address = format!("{}:{}", row.host, row.port);
+      let avg_latency = row
+        .average_latency_ms
+        .map(|value| format!("{value} ms"))
+        .unwrap_or_else(|| "-".to_string());
+      markdown.push_str(&format!(
+        "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+        index + 1,
+        escape_markdown_cell(&row.node_name),
+        escape_markdown_cell(&row.protocol),
+        escape_markdown_cell(&address),
+        row.total_tests,
+        format!("{:.0}%", row.success_rate * 100.0),
+        escape_markdown_cell(&avg_latency),
+        row.score,
+        escape_markdown_cell(&row.recommendation_level),
+        escape_markdown_cell(&row.last_test_at),
+      ));
+    }
+    markdown.push('\n');
+  }
+
+  markdown.push_str("## 待清理节点\n\n");
+  if cleanup_rows.is_empty() {
+    markdown.push_str("本月没有需要清理的节点。\n\n");
+  } else {
+    markdown.push_str("| 节点 | 协议 | 地址 | 分数 | 等级 | 失败次数 | 说明 |\n");
+    markdown.push_str("| --- | --- | --- | --- | --- | --- | --- |\n");
+    for row in cleanup_rows {
+      let address = format!("{}:{}", row.host, row.port);
+      markdown.push_str(&format!(
+        "| {} | {} | {} | {} | {} | {} | {} |\n",
+        escape_markdown_cell(&row.node_name),
+        escape_markdown_cell(&row.protocol),
+        escape_markdown_cell(&address),
+        row.score,
+        escape_markdown_cell(&row.recommendation_level),
+        row.failure_count,
+        escape_markdown_cell(&row.recommendation_reason),
+      ));
+    }
+    markdown.push('\n');
+  }
+
+  markdown
+}
+
+fn write_quality_csv(path: &Path, rankings: &[NodeQualitySummary]) -> Result<()> {
+  let mut writer = Writer::from_path(path).context("open node report csv")?;
+  writer.write_record([
+    "rank",
+    "node_name",
+    "protocol",
+    "host",
+    "port",
+    "source_label",
+    "source_file_name",
+    "total_tests",
+    "success_count",
+    "failure_count",
+    "success_rate",
+    "average_latency_ms",
+    "score",
+    "recommendation_level",
+    "recommendation_reason",
+    "last_test_at",
+  ])?;
+
+  for (index, row) in rankings.iter().enumerate() {
+    writer.write_record([
+      (index + 1).to_string(),
+      row.node_name.clone(),
+      row.protocol.clone(),
+      row.host.clone(),
+      row.port.to_string(),
+      row.source_label.clone(),
+      row.source_file_name.clone(),
+      row.total_tests.to_string(),
+      row.success_count.to_string(),
+      row.failure_count.to_string(),
+      format!("{:.4}", row.success_rate),
+      row.average_latency_ms.map(|value| value.to_string()).unwrap_or_default(),
+      row.score.to_string(),
+      row.recommendation_level.clone(),
+      row.recommendation_reason.clone(),
+      row.last_test_at.clone(),
+    ])?;
+  }
+
+  writer.flush().context("flush node report csv")?;
+  Ok(())
+}
+
+fn write_recommended_csv(path: &Path, rankings: &[NodeQualitySummary]) -> Result<()> {
+  let recommended_rows: Vec<&NodeQualitySummary> = rankings.iter().filter(|item| item.score >= 70).collect();
+  let mut writer = Writer::from_path(path).context("open recommended node csv")?;
+  writer.write_record([
+    "rank",
+    "node_name",
+    "protocol",
+    "host",
+    "port",
+    "score",
+    "recommendation_level",
+    "success_rate",
+    "average_latency_ms",
+    "last_test_at",
+  ])?;
+
+  for (index, row) in recommended_rows.iter().enumerate() {
+    writer.write_record([
+      (index + 1).to_string(),
+      row.node_name.clone(),
+      row.protocol.clone(),
+      row.host.clone(),
+      row.port.to_string(),
+      row.score.to_string(),
+      row.recommendation_level.clone(),
+      format!("{:.4}", row.success_rate),
+      row.average_latency_ms.map(|value| value.to_string()).unwrap_or_default(),
+      row.last_test_at.clone(),
+    ])?;
+  }
+
+  writer.flush().context("flush recommended node csv")?;
+  Ok(())
+}
+
+pub fn export_node_monthly_report(
+  connection: &Connection,
+  export_dir: &Path,
+  app_name: &str,
+  input: &NodeReportExportInput,
+) -> Result<ExportResult> {
+  let month_range = parse_month_range(input.month.as_deref())?;
+  let rankings = collect_node_quality_rankings(connection, &input.filters, Some(&month_range))?;
+  fs::create_dir_all(export_dir).context("create export directory")?;
+
+  let folder = export_dir.join(format!("{app_name}-node-report-{}-{}", month_range.label, timestamp_slug()));
+  fs::create_dir_all(&folder).context("create monthly report folder")?;
+
+  let markdown_path = folder.join("monthly-report.md");
+  let csv_path = folder.join("rankings.csv");
+  let recommended_csv_path = folder.join("recommended.csv");
+  let generated_at = Utc::now().to_rfc3339();
+
+  fs::write(
+    &markdown_path,
+    build_monthly_report_markdown(&month_range, &input.filters, &rankings, &generated_at),
+  )
+  .context("write monthly report markdown")?;
+  write_quality_csv(&csv_path, &rankings)?;
+  write_recommended_csv(&recommended_csv_path, &rankings)?;
+
+  Ok(ExportResult {
+    kind: "node-report".to_string(),
+    primary_path: folder.to_string_lossy().to_string(),
+    paths: vec![
+      markdown_path.to_string_lossy().to_string(),
+      csv_path.to_string_lossy().to_string(),
+      recommended_csv_path.to_string_lossy().to_string(),
+    ],
+    generated_at,
   })
 }

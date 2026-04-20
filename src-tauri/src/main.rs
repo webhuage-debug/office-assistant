@@ -43,7 +43,8 @@ fn main() {
       commands::export_json_backup,
       commands::export_csv_backup,
       commands::export_database_backup,
-      commands::import_json_backup
+      commands::import_json_backup,
+      commands::export_node_monthly_report
     ])
     .run(tauri::generate_context!())
     .expect("error while running smart-home-office-assistant");

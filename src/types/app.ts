@@ -107,7 +107,7 @@ export interface DashboardStats {
 }
 
 export interface ExportResult {
-  kind: "json" | "csv" | "database";
+  kind: "json" | "csv" | "database" | "node-report";
   primaryPath: string;
   paths: string[];
   generatedAt: string;
