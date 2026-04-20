@@ -3,6 +3,7 @@ import { formatDateTime } from "@/utils/date";
 
 interface NodeTestResultTableProps {
   results: NodeTestResultSummary[];
+  onDeleteNode?: (result: NodeTestResultSummary) => void;
 }
 
 function formatAddress(result: NodeTestResultSummary): string {
@@ -25,7 +26,7 @@ function getStatusClass(success: boolean): string {
   return success ? "status-chip status-chip-success" : "status-chip status-chip-danger";
 }
 
-export function NodeTestResultTable({ results }: NodeTestResultTableProps) {
+export function NodeTestResultTable({ results, onDeleteNode }: NodeTestResultTableProps) {
   return (
     <div className="table-wrap">
       <table className="table table-compact">
@@ -39,6 +40,7 @@ export function NodeTestResultTable({ results }: NodeTestResultTableProps) {
             <th>延迟</th>
             <th>错误信息</th>
             <th>创建时间</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -60,11 +62,20 @@ export function NodeTestResultTable({ results }: NodeTestResultTableProps) {
                   {result.errorMessage || "-"}
                 </td>
                 <td>{formatDateTime(result.createdAt)}</td>
+                <td>
+                  {onDeleteNode && !result.success ? (
+                    <button type="button" className="button button-link button-danger" onClick={() => onDeleteNode(result)}>
+                      删除节点
+                    </button>
+                  ) : (
+                    "-"
+                  )}
+                </td>
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan={8}>
+              <td colSpan={9}>
                 <div className="table-empty">选择一个测试批次后，结果会显示在这里。</div>
               </td>
             </tr>

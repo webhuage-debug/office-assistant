@@ -448,6 +448,12 @@ button {
   color: #1d4ed8;
 }
 
+.status-chip-warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
 .table-empty,
 .empty-state {
   display: grid;

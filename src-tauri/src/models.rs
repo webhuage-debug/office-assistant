@@ -279,6 +279,39 @@ pub struct NodeTestRunDetail {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NodeQualitySummary {
+  pub id: String,
+  pub node_id: String,
+  pub node_name: String,
+  pub protocol: String,
+  pub host: String,
+  pub port: i64,
+  pub source_label: String,
+  pub source_file_name: String,
+  pub total_tests: i64,
+  pub success_count: i64,
+  pub failure_count: i64,
+  pub success_rate: f64,
+  pub average_latency_ms: Option<i64>,
+  pub score: i64,
+  pub recommendation_level: String,
+  pub recommendation_reason: String,
+  pub last_test_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeQualityStats {
+  pub total_ranked_nodes: i64,
+  pub recommended_nodes: i64,
+  pub excellent_nodes: i64,
+  pub stable_nodes: i64,
+  pub average_score: i64,
+  pub top_score: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StorageConfig {
   pub database_file: String,
   pub export_dir: String,

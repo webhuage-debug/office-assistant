@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState";
 import { NodeEntryTable } from "@/components/NodeEntryTable";
 import { NodeImportForm } from "@/components/NodeImportForm";
+import { NodeQualityTable } from "@/components/NodeQualityTable";
 import { NodeTestResultTable } from "@/components/NodeTestResultTable";
 import { NodeTestRunTable } from "@/components/NodeTestRunTable";
 import { PageHeader } from "@/components/PageHeader";
@@ -10,8 +11,10 @@ import { StatCard } from "@/components/StatCard";
 import {
   deleteNodeEntry,
   getNodeOverviewStats,
+  getNodeQualityStats,
   importNodeEntries,
   listNodeEntries,
+  listNodeQualityRankings,
   listNodeTestResults,
   listNodeTestRuns,
   runNodeTests,
@@ -22,6 +25,8 @@ import type {
   NodeImportBatchSummary,
   NodeListFilters,
   NodeOverviewStats,
+  NodeQualityStats,
+  NodeQualitySummary,
   NodeTestResultSummary,
   NodeTestRunSummary,
 } from "@/types/node";
@@ -48,9 +53,14 @@ export function NodeWorkbenchPage() {
   const [testRuns, setTestRuns] = useState<NodeTestRunSummary[]>([]);
   const [activeRun, setActiveRun] = useState<NodeTestRunSummary | null>(null);
   const [activeResults, setActiveResults] = useState<NodeTestResultSummary[]>([]);
+  const [qualityStats, setQualityStats] = useState<NodeQualityStats | null>(null);
+  const [qualityRows, setQualityRows] = useState<NodeQualitySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const visibleSuccessCount = activeResults.filter((result) => result.success).length;
+  const visibleFailureCount = activeResults.filter((result) => !result.success).length;
+  const failedNodeCount = new Set(activeResults.filter((result) => !result.success).map((result) => result.nodeId)).size;
 
   const loadWorkspace = async (search = keyword) => {
     setLoading(true);
@@ -58,15 +68,19 @@ export function NodeWorkbenchPage() {
 
     try {
       const nextFilters: NodeListFilters = search.trim() ? { keyword: search.trim() } : {};
-      const [nextEntries, nextStats, nextRuns] = await Promise.all([
+      const [nextEntries, nextStats, nextRuns, nextQualityStats, nextQualityRows] = await Promise.all([
         listNodeEntries(nextFilters),
         getNodeOverviewStats(),
         listNodeTestRuns(10),
+        getNodeQualityStats(nextFilters),
+        listNodeQualityRankings(nextFilters, 20),
       ]);
 
       setEntries(nextEntries);
       setStats(nextStats);
       setTestRuns(nextRuns);
+      setQualityStats(nextQualityStats);
+      setQualityRows(nextQualityRows);
 
       if (nextRuns.length > 0) {
         const latestRun = nextRuns[0];
@@ -151,6 +165,44 @@ export function NodeWorkbenchPage() {
     }
   };
 
+  const handleDeleteNode = async (result: NodeTestResultSummary) => {
+    const confirmed = window.confirm(`确定删除测试不通的节点「${result.nodeName}」吗？`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await deleteNodeEntry(result.nodeId);
+      await loadWorkspace(keyword);
+    } catch (caught) {
+      window.alert(getErrorMessage(caught));
+    }
+  };
+
+  const handleDeleteFailedNodes = async () => {
+    const failedNodes = activeResults.filter((result) => !result.success);
+    const uniqueFailedNodes = Array.from(new Map(failedNodes.map((result) => [result.nodeId, result])).values());
+
+    if (uniqueFailedNodes.length === 0) {
+      window.alert("当前测试结果里没有需要删除的不通节点。");
+      return;
+    }
+
+    const confirmed = window.confirm(`确定删除本次测试中 ${uniqueFailedNodes.length} 个不通节点吗？`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      for (const result of uniqueFailedNodes) {
+        await deleteNodeEntry(result.nodeId);
+      }
+      await loadWorkspace(keyword);
+    } catch (caught) {
+      window.alert(getErrorMessage(caught));
+    }
+  };
+
   return (
     <div className="page">
       <PageHeader
@@ -176,7 +228,7 @@ export function NodeWorkbenchPage() {
           <div>
             <h2 className="card-title">当前阶段目标</h2>
             <p className="card-subtitle">
-              先把节点清单整理成统一结构，留好批量测试、历史留存和月度文档输出的底层入口，后面继续往自动化处理串。
+              先把节点清单整理成统一结构，留好批量测试、评分和月度文档输出的底层入口，后面继续往自动化处理串。
             </p>
           </div>
         </div>
@@ -192,7 +244,7 @@ export function NodeWorkbenchPage() {
           </div>
           <div className="detail-item detail-item-span-2">
             <span className="field-label">后续顺序</span>
-            <div className="detail-value detail-remark">节点测试器 → 去重评分 → 月度文档生成 → 定时任务和历史对比</div>
+            <div className="detail-value detail-remark">节点测试器，去重评分，月度文档生成，定时任务和历史对比</div>
           </div>
         </div>
       </section>
@@ -252,7 +304,7 @@ export function NodeWorkbenchPage() {
         <div className="card-header">
           <div>
             <h2 className="card-title">节点搜索</h2>
-            <p className="card-subtitle">先按关键字快速筛选节点名称、地址、备注和来源文件，再继续做测试或月度整理。</p>
+            <p className="card-subtitle">先按关键字快速筛选节点名称、地址、备注和来源文件，再继续做测试或评分整理。</p>
           </div>
         </div>
 
@@ -288,7 +340,7 @@ export function NodeWorkbenchPage() {
           <div className="card-header">
             <div>
               <h2 className="card-title">节点列表</h2>
-              <p className="card-subtitle">当前只做台账管理，不碰公开采集。后面测试和报表会基于这里的记录继续扩展。</p>
+              <p className="card-subtitle">当前只做台账管理，不碰公开采集。后面测试和评分都会基于这里的记录继续扩展。</p>
             </div>
           </div>
 
@@ -337,7 +389,7 @@ export function NodeWorkbenchPage() {
               <div className="detail-item">
                 <span className="field-label">成功 / 失败</span>
                 <div className="detail-value">
-                  {activeRun.successCount} / {activeRun.failureCount}
+                  {visibleSuccessCount} / {visibleFailureCount}
                 </div>
               </div>
               <div className="detail-item">
@@ -346,9 +398,20 @@ export function NodeWorkbenchPage() {
               </div>
             </div>
 
+            <div className="form-actions">
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => void handleDeleteFailedNodes()}
+                disabled={failedNodeCount === 0}
+              >
+                {failedNodeCount === 0 ? "没有不通节点" : `删除本次不通节点 (${failedNodeCount})`}
+              </button>
+            </div>
+
             {activeRun.errorMessage ? <div className="alert alert-error">{activeRun.errorMessage}</div> : null}
 
-            <NodeTestResultTable results={activeResults} />
+            <NodeTestResultTable results={activeResults} onDeleteNode={handleDeleteNode} />
           </>
         ) : (
           <EmptyState
@@ -356,6 +419,25 @@ export function NodeWorkbenchPage() {
             description="点击“测试当前筛选”后，系统会对当前节点清单逐个做连通性检测，并把结果保存到本地数据库。"
           />
         )}
+      </section>
+
+      <section className="stats-grid">
+        <StatCard label="已评分节点" value={String(qualityStats?.totalRankedNodes ?? 0)} hint="至少完成一次测试的节点" />
+        <StatCard label="推荐节点" value={String(qualityStats?.recommendedNodes ?? 0)} hint="适合后续优先保留和复测" />
+        <StatCard label="优选节点" value={String(qualityStats?.excellentNodes ?? 0)} hint="分数较高且比较稳定" />
+        <StatCard label="稳定节点" value={String(qualityStats?.stableNodes ?? 0)} hint="成功率高且测试量足够" />
+        <StatCard label="平均评分" value={String(qualityStats?.averageScore ?? 0)} hint="当前评分结果的平均值" />
+      </section>
+
+      <section className="card">
+        <div className="card-header">
+          <div>
+            <h2 className="card-title">节点评分结果</h2>
+            <p className="card-subtitle">评分会根据历史测试结果、成功率、延迟和测试量综合计算，后面可以直接给 Hermes 继续调用。</p>
+          </div>
+        </div>
+
+        <NodeQualityTable rows={qualityRows} />
       </section>
     </div>
   );

@@ -88,3 +88,32 @@ export interface NodeTestRunDetail {
   run: NodeTestRunSummary;
   results: NodeTestResultSummary[];
 }
+
+export interface NodeQualitySummary {
+  id: string;
+  nodeId: string;
+  nodeName: string;
+  protocol: string;
+  host: string;
+  port: number;
+  sourceLabel: string;
+  sourceFileName: string;
+  totalTests: number;
+  successCount: number;
+  failureCount: number;
+  successRate: number;
+  averageLatencyMs?: number | null;
+  score: number;
+  recommendationLevel: string;
+  recommendationReason: string;
+  lastTestAt: string;
+}
+
+export interface NodeQualityStats {
+  totalRankedNodes: number;
+  recommendedNodes: number;
+  excellentNodes: number;
+  stableNodes: number;
+  averageScore: number;
+  topScore: number;
+}

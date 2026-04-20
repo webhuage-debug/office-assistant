@@ -8,6 +8,8 @@ import type {
   NodeTestResultSummary,
   NodeTestRunDetail,
   NodeTestRunSummary,
+  NodeQualityStats,
+  NodeQualitySummary,
   NodeOverviewStats,
 } from "@/types/node";
 
@@ -37,4 +39,15 @@ export async function listNodeTestRuns(limit = 10): Promise<NodeTestRunSummary[]
 
 export async function listNodeTestResults(runId: string): Promise<NodeTestResultSummary[]> {
   return callBackend<NodeTestResultSummary[]>("list_node_test_results", { runId });
+}
+
+export async function listNodeQualityRankings(
+  filters: NodeListFilters = {},
+  limit = 20,
+): Promise<NodeQualitySummary[]> {
+  return callBackend<NodeQualitySummary[]>("list_node_quality_rankings", { filters, limit });
+}
+
+export async function getNodeQualityStats(filters: NodeListFilters = {}): Promise<NodeQualityStats> {
+  return callBackend<NodeQualityStats>("get_node_quality_stats", { filters });
 }

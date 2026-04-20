@@ -4,7 +4,7 @@ use crate::models::{
   CadDocumentCreateInput, CadDocumentSummary, CadParseSummary, CadPipelineStats, DashboardStats, ExportResult,
   NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats, NodeTestRequest,
   NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, ProjectDetail, ProjectFilters, ProjectSummary,
-  ProjectUpsertInput,
+  ProjectUpsertInput, NodeQualityStats, NodeQualitySummary,
 };
 use crate::repositories::{backup, cad, nodes, projects};
 use crate::state::AppState;
@@ -130,6 +130,24 @@ pub fn get_node_overview_stats(state: State<'_, AppState>) -> Result<NodeOvervie
   let connection = open_connection(std::path::Path::new(&state.config.database_path))
     .map_err(|error| error.to_string())?;
   nodes::overview_stats(&connection).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_node_quality_rankings(
+  state: State<'_, AppState>,
+  filters: NodeListFilters,
+  limit: Option<i64>,
+) -> Result<Vec<NodeQualitySummary>, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::list_node_quality_rankings(&connection, &filters, limit.unwrap_or(20)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_node_quality_stats(state: State<'_, AppState>, filters: NodeListFilters) -> Result<NodeQualityStats, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::quality_stats(&connection, &filters).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

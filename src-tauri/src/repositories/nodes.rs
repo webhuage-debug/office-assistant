@@ -1,12 +1,13 @@
 use crate::models::{
   NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats, NodeTestRequest,
-  NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary,
+  NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, NodeQualityStats, NodeQualitySummary,
 };
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::Deserialize;
 use std::convert::TryFrom;
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fs;
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
@@ -493,6 +494,9 @@ pub fn import_node_entries(
 
 pub fn delete_node_entry(connection: &mut Connection, id: &str) -> Result<()> {
   let transaction = connection.transaction().context("start node delete transaction")?;
+  transaction
+    .execute("DELETE FROM node_test_results WHERE node_id = ?", params![id])
+    .context("delete node test results")?;
   let affected = transaction
     .execute("DELETE FROM node_entries WHERE id = ?", params![id])
     .context("delete node entry")?;
@@ -892,4 +896,254 @@ pub fn list_node_test_results(connection: &Connection, run_id: &str) -> Result<V
   }
 
   Ok(results)
+}
+
+#[derive(Debug)]
+struct NodeQualityAggregateRow {
+  node_id: String,
+  node_name: String,
+  protocol: String,
+  host: String,
+  port: i64,
+  source_label: String,
+  source_file_name: String,
+  total_tests: i64,
+  success_count: i64,
+  average_latency_ms: Option<f64>,
+  last_test_at: String,
+}
+
+fn row_to_node_quality_aggregate(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeQualityAggregateRow> {
+  Ok(NodeQualityAggregateRow {
+    node_id: row.get("node_id")?,
+    node_name: row.get("node_name")?,
+    protocol: row.get("protocol")?,
+    host: row.get("host")?,
+    port: row.get("port")?,
+    source_label: row.get("source_label")?,
+    source_file_name: row.get::<_, Option<String>>("source_file_name")?.unwrap_or_default(),
+    total_tests: row.get("total_tests")?,
+    success_count: row.get("success_count")?,
+    average_latency_ms: row.get("average_latency_ms")?,
+    last_test_at: row.get::<_, Option<String>>("last_test_at")?.unwrap_or_default(),
+  })
+}
+
+fn format_latency_label(latency_ms: Option<i64>) -> String {
+  match latency_ms {
+    Some(value) if value <= 100 => "≤100ms".to_string(),
+    Some(value) if value <= 300 => "≤300ms".to_string(),
+    Some(value) if value <= 800 => "≤800ms".to_string(),
+    Some(value) => format!("{value}ms"),
+    None => "无延迟数据".to_string(),
+  }
+}
+
+fn quality_level(score: i64) -> &'static str {
+  if score >= 85 {
+    "优选"
+  } else if score >= 70 {
+    "推荐"
+  } else if score >= 50 {
+    "可观察"
+  } else {
+    "淘汰"
+  }
+}
+
+fn compute_quality_score(total_tests: i64, success_count: i64, average_latency_ms: Option<f64>) -> (i64, String) {
+  if total_tests <= 0 {
+    return (0, "暂无测试记录".to_string());
+  }
+
+  let success_rate = success_count as f64 / total_tests as f64;
+  let latency_bonus = match average_latency_ms.map(|value| value.round() as i64) {
+    Some(value) if value <= 100 => 20,
+    Some(value) if value <= 300 => 16,
+    Some(value) if value <= 800 => 10,
+    Some(_) => 4,
+    None => 0,
+  };
+
+  let volume_bonus = match total_tests {
+    1 => 3,
+    2 => 6,
+    3 => 8,
+    4..=10 => 10,
+    _ => 12,
+  };
+
+  let raw_score = (success_rate * 70.0) + latency_bonus as f64 + volume_bonus as f64;
+  let score = raw_score.round().clamp(0.0, 100.0) as i64;
+  let average_latency_label = format_latency_label(average_latency_ms.map(|value| value.round() as i64));
+  let reason = format!(
+    "成功率 {:.0}% · 平均延迟 {} · 测试 {} 次",
+    success_rate * 100.0,
+    average_latency_label,
+    total_tests
+  );
+
+  (score, reason)
+}
+
+fn build_quality_summary(row: NodeQualityAggregateRow) -> NodeQualitySummary {
+  let failure_count = row.total_tests.saturating_sub(row.success_count);
+  let success_rate = if row.total_tests > 0 {
+    row.success_count as f64 / row.total_tests as f64
+  } else {
+    0.0
+  };
+  let average_latency_ms = row.average_latency_ms.map(|value| value.round().max(0.0) as i64);
+  let (score, base_reason) = compute_quality_score(row.total_tests, row.success_count, row.average_latency_ms);
+  let recommendation_level = quality_level(score).to_string();
+  let recommendation_reason = format!(
+    "{base_reason} · 等级 {recommendation_level}"
+  );
+
+  NodeQualitySummary {
+    id: row.node_id.clone(),
+    node_id: row.node_id,
+    node_name: row.node_name,
+    protocol: row.protocol,
+    host: row.host,
+    port: row.port,
+    source_label: row.source_label,
+    source_file_name: row.source_file_name,
+    total_tests: row.total_tests,
+    success_count: row.success_count,
+    failure_count,
+    success_rate,
+    average_latency_ms,
+    score,
+    recommendation_level,
+    recommendation_reason,
+    last_test_at: row.last_test_at,
+  }
+}
+
+fn collect_node_quality_rankings(connection: &Connection, filters: &NodeListFilters) -> Result<Vec<NodeQualitySummary>> {
+  let mut query = String::from(
+    r#"
+    SELECT
+      n.id AS node_id,
+      n.node_name,
+      n.protocol,
+      n.host,
+      n.port,
+      n.source_label,
+      b.source_file_name,
+      COUNT(r.id) AS total_tests,
+      SUM(CASE WHEN r.success = 1 THEN 1 ELSE 0 END) AS success_count,
+      AVG(CASE WHEN r.success = 1 AND r.latency_ms IS NOT NULL THEN r.latency_ms END) AS average_latency_ms,
+      MAX(r.created_at) AS last_test_at
+    FROM node_entries n
+    LEFT JOIN node_import_batches b ON b.id = n.last_seen_batch_id
+    LEFT JOIN node_test_results r ON r.node_id = n.id
+    WHERE 1 = 1
+    "#,
+  );
+
+  let mut values: Vec<String> = Vec::new();
+
+  if let Some(keyword) = filters
+    .keyword
+    .as_ref()
+    .map(|value| value.trim())
+    .filter(|value| !value.is_empty())
+  {
+    query.push_str(" AND (n.node_name LIKE ? OR n.host LIKE ? OR n.remark LIKE ? OR n.source_label LIKE ? OR b.source_file_name LIKE ?)");
+    let value = format!("%{keyword}%");
+    values.extend([value.clone(), value.clone(), value.clone(), value.clone(), value]);
+  }
+
+  if let Some(source_label) = filters
+    .source_label
+    .as_ref()
+    .map(|value| value.trim())
+    .filter(|value| !value.is_empty())
+  {
+    query.push_str(" AND n.source_label LIKE ?");
+    values.push(format!("%{source_label}%"));
+  }
+
+  if let Some(protocol) = filters
+    .protocol
+    .as_ref()
+    .map(|value| value.trim())
+    .filter(|value| !value.is_empty())
+  {
+    query.push_str(" AND n.protocol LIKE ?");
+    values.push(format!("%{protocol}%"));
+  }
+
+  query.push_str(
+    r#"
+    GROUP BY n.id, n.node_name, n.protocol, n.host, n.port, n.source_label, b.source_file_name
+    HAVING COUNT(r.id) > 0
+    "#,
+  );
+
+  let mut statement = connection
+    .prepare(&query)
+    .context("prepare node quality query")?;
+
+  let rows = statement
+    .query_map(params_from_iter(values.iter()), row_to_node_quality_aggregate)
+    .context("query node quality rows")?;
+
+  let mut rankings = Vec::new();
+  for row in rows {
+    rankings.push(build_quality_summary(row.context("map node quality row")?));
+  }
+
+  rankings.sort_by(|left, right| {
+    right
+      .score
+      .cmp(&left.score)
+      .then_with(|| right.success_rate.partial_cmp(&left.success_rate).unwrap_or(Ordering::Equal))
+      .then_with(|| right.total_tests.cmp(&left.total_tests))
+      .then_with(|| left.average_latency_ms.unwrap_or(i64::MAX).cmp(&right.average_latency_ms.unwrap_or(i64::MAX)))
+      .then_with(|| right.last_test_at.cmp(&left.last_test_at))
+  });
+
+  Ok(rankings)
+}
+
+pub fn list_node_quality_rankings(connection: &Connection, filters: &NodeListFilters, limit: i64) -> Result<Vec<NodeQualitySummary>> {
+  let limit = if limit <= 0 { 10 } else { limit.min(100) } as usize;
+  let rankings = collect_node_quality_rankings(connection, filters)?;
+  Ok(rankings.into_iter().take(limit).collect())
+}
+
+pub fn quality_stats(connection: &Connection, filters: &NodeListFilters) -> Result<NodeQualityStats> {
+  let rankings = collect_node_quality_rankings(connection, filters)?;
+  if rankings.is_empty() {
+    return Ok(NodeQualityStats {
+      total_ranked_nodes: 0,
+      recommended_nodes: 0,
+      excellent_nodes: 0,
+      stable_nodes: 0,
+      average_score: 0,
+      top_score: 0,
+    });
+  }
+
+  let total_ranked_nodes = rankings.len() as i64;
+  let recommended_nodes = rankings.iter().filter(|item| item.score >= 70).count() as i64;
+  let excellent_nodes = rankings.iter().filter(|item| item.score >= 85).count() as i64;
+  let stable_nodes = rankings
+    .iter()
+    .filter(|item| item.success_rate >= 0.8 && item.total_tests >= 3)
+    .count() as i64;
+  let average_score = (rankings.iter().map(|item| item.score).sum::<i64>() as f64 / total_ranked_nodes as f64).round() as i64;
+  let top_score = rankings.first().map(|item| item.score).unwrap_or(0);
+
+  Ok(NodeQualityStats {
+    total_ranked_nodes,
+    recommended_nodes,
+    excellent_nodes,
+    stable_nodes,
+    average_score,
+    top_score,
+  })
 }

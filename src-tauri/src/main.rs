@@ -35,6 +35,8 @@ fn main() {
       commands::import_node_entries,
       commands::delete_node_entry,
       commands::get_node_overview_stats,
+      commands::list_node_quality_rankings,
+      commands::get_node_quality_stats,
       commands::run_node_tests,
       commands::list_node_test_runs,
       commands::list_node_test_results,
