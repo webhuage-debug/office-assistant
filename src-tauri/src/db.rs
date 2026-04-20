@@ -111,6 +111,38 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
         FOREIGN KEY(last_seen_batch_id) REFERENCES node_import_batches(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS node_test_runs (
+        id TEXT PRIMARY KEY,
+        trigger_source TEXT NOT NULL DEFAULT 'manual',
+        filter_snapshot_json TEXT NOT NULL DEFAULT '{}',
+        scope_summary TEXT NOT NULL DEFAULT '',
+        target_count INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        failure_count INTEGER NOT NULL DEFAULT 0,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'completed',
+        error_message TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS node_test_results (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        node_id TEXT NOT NULL,
+        node_name TEXT NOT NULL,
+        protocol TEXT NOT NULL,
+        host TEXT NOT NULL,
+        port INTEGER NOT NULL DEFAULT 0,
+        result_order INTEGER NOT NULL DEFAULT 0,
+        success INTEGER NOT NULL DEFAULT 0,
+        latency_ms INTEGER,
+        error_message TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(run_id) REFERENCES node_test_runs(id) ON DELETE CASCADE
+      );
+
       CREATE INDEX IF NOT EXISTS idx_projects_project_no ON projects(project_no);
       CREATE INDEX IF NOT EXISTS idx_projects_customer_name ON projects(customer_name);
       CREATE INDEX IF NOT EXISTS idx_projects_phone ON projects(phone);
@@ -126,6 +158,10 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
       CREATE INDEX IF NOT EXISTS idx_node_entries_protocol ON node_entries(protocol);
       CREATE INDEX IF NOT EXISTS idx_node_entries_source_label ON node_entries(source_label);
       CREATE INDEX IF NOT EXISTS idx_node_entries_updated_at ON node_entries(updated_at);
+      CREATE INDEX IF NOT EXISTS idx_node_test_runs_created_at ON node_test_runs(created_at);
+      CREATE INDEX IF NOT EXISTS idx_node_test_runs_status ON node_test_runs(status);
+      CREATE INDEX IF NOT EXISTS idx_node_test_results_run_id ON node_test_results(run_id);
+      CREATE INDEX IF NOT EXISTS idx_node_test_results_success ON node_test_results(success);
       "#,
     )
     .context("create sqlite schema")?;

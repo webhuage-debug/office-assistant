@@ -3,6 +3,11 @@ export interface NodeImportInput {
   sourceLabel: string;
 }
 
+export interface NodeTestRequest {
+  filters: NodeListFilters;
+  triggerSource?: string;
+}
+
 export interface NodeListFilters {
   keyword?: string;
   sourceLabel?: string;
@@ -46,4 +51,40 @@ export interface NodeEntrySummary {
   lastSeenBatchId: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface NodeTestRunSummary {
+  id: string;
+  triggerSource: string;
+  filterSnapshotJson: string;
+  scopeSummary: string;
+  targetCount: number;
+  successCount: number;
+  failureCount: number;
+  durationMs: number;
+  status: string;
+  errorMessage: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NodeTestResultSummary {
+  id: string;
+  runId: string;
+  nodeId: string;
+  nodeName: string;
+  protocol: string;
+  host: string;
+  port: number;
+  resultOrder: number;
+  success: boolean;
+  latencyMs?: number | null;
+  errorMessage: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NodeTestRunDetail {
+  run: NodeTestRunSummary;
+  results: NodeTestResultSummary[];
 }

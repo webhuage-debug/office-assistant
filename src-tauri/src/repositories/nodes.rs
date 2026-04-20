@@ -1,11 +1,17 @@
-use crate::models::{NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats};
+use crate::models::{
+  NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats, NodeTestRequest,
+  NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary,
+};
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::Deserialize;
+use std::convert::TryFrom;
 use std::collections::HashSet;
 use std::fs;
+use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 const DEFAULT_SOURCE_LABEL: &str = "手动导入";
@@ -524,4 +530,366 @@ pub fn overview_stats(connection: &Connection) -> Result<NodeOverviewStats> {
     .context("query node overview stats")?;
 
   Ok(stats)
+}
+
+#[derive(Debug)]
+struct ConnectivityTestOutcome {
+  success: bool,
+  latency_ms: Option<i64>,
+  error_message: String,
+}
+
+fn normalize_trigger_source(value: Option<String>) -> String {
+  let trigger_source = normalize_text(value);
+  if trigger_source.is_empty() {
+    "manual".to_string()
+  } else {
+    trigger_source
+  }
+}
+
+fn summarize_test_scope(filters: &NodeListFilters, trigger_source: &str, target_count: i64) -> String {
+  let mut parts = vec![format!("trigger={trigger_source}")];
+
+  if let Some(keyword) = filters
+    .keyword
+    .as_ref()
+    .map(|value| value.trim())
+    .filter(|value| !value.is_empty())
+  {
+    parts.push(format!("keyword={keyword}"));
+  }
+
+  if let Some(source_label) = filters
+    .source_label
+    .as_ref()
+    .map(|value| value.trim())
+    .filter(|value| !value.is_empty())
+  {
+    parts.push(format!("sourceLabel={source_label}"));
+  }
+
+  if let Some(protocol) = filters
+    .protocol
+    .as_ref()
+    .map(|value| value.trim())
+    .filter(|value| !value.is_empty())
+  {
+    parts.push(format!("protocol={protocol}"));
+  }
+
+  parts.push(format!("targets={target_count}"));
+  parts.join(" | ")
+}
+
+fn serialize_filter_snapshot(filters: &NodeListFilters) -> Result<String> {
+  serde_json::to_string(filters).context("serialize node test filter snapshot")
+}
+
+fn test_single_node(entry: &NodeEntrySummary) -> ConnectivityTestOutcome {
+  let started = Instant::now();
+  let timeout = Duration::from_secs(3);
+  let port = match u16::try_from(entry.port) {
+    Ok(port) => port,
+    Err(_) => {
+      return ConnectivityTestOutcome {
+        success: false,
+        latency_ms: None,
+        error_message: "节点端口无效".to_string(),
+      };
+    }
+  };
+
+  let mut last_error: Option<String> = None;
+  let resolved_addresses = match (entry.host.as_str(), port).to_socket_addrs() {
+    Ok(addresses) => addresses,
+    Err(error) => {
+      return ConnectivityTestOutcome {
+        success: false,
+        latency_ms: None,
+        error_message: format!("地址解析失败: {error}"),
+      };
+    }
+  };
+
+  for address in resolved_addresses {
+    match TcpStream::connect_timeout(&address, timeout) {
+      Ok(stream) => {
+        let _ = stream.shutdown(Shutdown::Both);
+        let latency_ms = started.elapsed().as_millis().min(i64::MAX as u128) as i64;
+        return ConnectivityTestOutcome {
+          success: true,
+          latency_ms: Some(latency_ms),
+          error_message: String::new(),
+        };
+      }
+      Err(error) => {
+        last_error = Some(error.to_string());
+      }
+    }
+  }
+
+  ConnectivityTestOutcome {
+    success: false,
+    latency_ms: None,
+    error_message: last_error.unwrap_or_else(|| "连接失败".to_string()),
+  }
+}
+
+fn row_to_test_run_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeTestRunSummary> {
+  Ok(NodeTestRunSummary {
+    id: row.get("id")?,
+    trigger_source: row.get("trigger_source")?,
+    filter_snapshot_json: row.get("filter_snapshot_json")?,
+    scope_summary: row.get("scope_summary")?,
+    target_count: row.get("target_count")?,
+    success_count: row.get("success_count")?,
+    failure_count: row.get("failure_count")?,
+    duration_ms: row.get("duration_ms")?,
+    status: row.get("status")?,
+    error_message: row.get("error_message")?,
+    created_at: row.get("created_at")?,
+    updated_at: row.get("updated_at")?,
+  })
+}
+
+fn row_to_test_result_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeTestResultSummary> {
+  let success_value: i64 = row.get("success")?;
+  Ok(NodeTestResultSummary {
+    id: row.get("id")?,
+    run_id: row.get("run_id")?,
+    node_id: row.get("node_id")?,
+    node_name: row.get("node_name")?,
+    protocol: row.get("protocol")?,
+    host: row.get("host")?,
+    port: row.get("port")?,
+    result_order: row.get("result_order")?,
+    success: success_value != 0,
+    latency_ms: row.get("latency_ms")?,
+    error_message: row.get("error_message")?,
+    created_at: row.get("created_at")?,
+    updated_at: row.get("updated_at")?,
+  })
+}
+
+pub fn run_node_tests(connection: &mut Connection, request: &NodeTestRequest) -> Result<NodeTestRunDetail> {
+  let nodes = list_node_entries(connection, &request.filters)?;
+  if nodes.is_empty() {
+    return Err(anyhow!("当前筛选条件下没有可测试的节点"));
+  }
+
+  let trigger_source = normalize_trigger_source(request.trigger_source.clone());
+  let filter_snapshot_json = serialize_filter_snapshot(&request.filters)?;
+  let scope_summary = summarize_test_scope(&request.filters, &trigger_source, nodes.len() as i64);
+  let run_id = Uuid::new_v4().to_string();
+  let created_at = now_iso();
+  let started = Instant::now();
+
+  connection
+    .execute(
+      r#"
+      INSERT INTO node_test_runs (
+        id, trigger_source, filter_snapshot_json, scope_summary, target_count,
+        success_count, failure_count, duration_ms, status, error_message, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      "#,
+      params![
+        &run_id,
+        &trigger_source,
+        &filter_snapshot_json,
+        &scope_summary,
+        nodes.len() as i64,
+        0_i64,
+        0_i64,
+        0_i64,
+        "running",
+        "",
+        &created_at,
+        &created_at,
+      ],
+    )
+    .context("insert node test run")?;
+
+  let result = (|| -> Result<NodeTestRunDetail> {
+    let mut results = Vec::with_capacity(nodes.len());
+    let mut success_count = 0_i64;
+    let mut failure_count = 0_i64;
+
+    for (index, entry) in nodes.iter().enumerate() {
+      let outcome = test_single_node(entry);
+      if outcome.success {
+        success_count += 1;
+      } else {
+        failure_count += 1;
+      }
+
+      results.push(NodeTestResultSummary {
+        id: Uuid::new_v4().to_string(),
+        run_id: run_id.clone(),
+        node_id: entry.id.clone(),
+        node_name: entry.node_name.clone(),
+        protocol: entry.protocol.clone(),
+        host: entry.host.clone(),
+        port: entry.port,
+        result_order: index as i64,
+        success: outcome.success,
+        latency_ms: outcome.latency_ms,
+        error_message: outcome.error_message,
+        created_at: created_at.clone(),
+        updated_at: created_at.clone(),
+      });
+    }
+
+    let duration_ms = started.elapsed().as_millis().min(i64::MAX as u128) as i64;
+    let transaction = connection.transaction().context("start node test transaction")?;
+
+    for result in &results {
+      transaction
+        .execute(
+          r#"
+          INSERT INTO node_test_results (
+            id, run_id, node_id, node_name, protocol, host, port, result_order,
+            success, latency_ms, error_message, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          "#,
+          params![
+            &result.id,
+            &result.run_id,
+            &result.node_id,
+            &result.node_name,
+            &result.protocol,
+            &result.host,
+            result.port,
+            result.result_order,
+            if result.success { 1_i64 } else { 0_i64 },
+            result.latency_ms,
+            &result.error_message,
+            &result.created_at,
+            &result.updated_at,
+          ],
+        )
+        .context("insert node test result")?;
+    }
+
+    transaction
+      .execute(
+        r#"
+        UPDATE node_test_runs
+        SET success_count = ?, failure_count = ?, duration_ms = ?, status = ?, updated_at = ?
+        WHERE id = ?
+        "#,
+        params![success_count, failure_count, duration_ms, "completed", &created_at, &run_id],
+      )
+      .context("update node test run")?;
+
+    transaction.commit().context("commit node test transaction")?;
+
+    Ok(NodeTestRunDetail {
+      run: NodeTestRunSummary {
+        id: run_id.clone(),
+        trigger_source,
+        filter_snapshot_json,
+        scope_summary,
+        target_count: nodes.len() as i64,
+        success_count,
+        failure_count,
+        duration_ms,
+        status: "completed".to_string(),
+        error_message: String::new(),
+        created_at: created_at.clone(),
+        updated_at: created_at.clone(),
+      },
+      results,
+    })
+  })();
+
+  match result {
+    Ok(detail) => Ok(detail),
+    Err(error) => {
+      let failed_at = now_iso();
+      let _ = connection.execute(
+        r#"
+        UPDATE node_test_runs
+        SET status = ?, error_message = ?, updated_at = ?
+        WHERE id = ?
+        "#,
+        params!["failed", error.to_string(), failed_at, run_id],
+      );
+      Err(error)
+    }
+  }
+}
+
+pub fn list_node_test_runs(connection: &Connection, limit: i64) -> Result<Vec<NodeTestRunSummary>> {
+  let limit = if limit <= 0 { 10 } else { limit.min(100) };
+  let mut statement = connection
+    .prepare(
+      r#"
+      SELECT
+        id,
+        trigger_source,
+        filter_snapshot_json,
+        scope_summary,
+        target_count,
+        success_count,
+        failure_count,
+        duration_ms,
+        status,
+        error_message,
+        created_at,
+        updated_at
+      FROM node_test_runs
+      ORDER BY created_at DESC, updated_at DESC
+      LIMIT ?
+      "#,
+    )
+    .context("prepare node test run query")?;
+
+  let rows = statement
+    .query_map(params![limit], row_to_test_run_summary)
+    .context("query node test runs")?;
+
+  let mut runs = Vec::new();
+  for row in rows {
+    runs.push(row.context("map node test run row")?);
+  }
+
+  Ok(runs)
+}
+
+pub fn list_node_test_results(connection: &Connection, run_id: &str) -> Result<Vec<NodeTestResultSummary>> {
+  let mut statement = connection
+    .prepare(
+      r#"
+      SELECT
+        id,
+        run_id,
+        node_id,
+        node_name,
+        protocol,
+        host,
+        port,
+        result_order,
+        success,
+        latency_ms,
+        error_message,
+        created_at,
+        updated_at
+      FROM node_test_results
+      WHERE run_id = ?
+      ORDER BY result_order ASC, created_at ASC
+      "#,
+    )
+    .context("prepare node test result query")?;
+
+  let rows = statement
+    .query_map(params![run_id], row_to_test_result_summary)
+    .context("query node test results")?;
+
+  let mut results = Vec::new();
+  for row in rows {
+    results.push(row.context("map node test result row")?);
+  }
+
+  Ok(results)
 }

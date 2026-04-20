@@ -213,7 +213,7 @@ pub struct NodeOverviewStats {
   pub latest_batch_rows: i64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeListFilters {
   pub keyword: Option<String>,
@@ -226,6 +226,55 @@ pub struct NodeListFilters {
 pub struct NodeImportInput {
   pub source_path: String,
   pub source_label: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeTestRequest {
+  pub filters: NodeListFilters,
+  pub trigger_source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeTestRunSummary {
+  pub id: String,
+  pub trigger_source: String,
+  pub filter_snapshot_json: String,
+  pub scope_summary: String,
+  pub target_count: i64,
+  pub success_count: i64,
+  pub failure_count: i64,
+  pub duration_ms: i64,
+  pub status: String,
+  pub error_message: String,
+  pub created_at: String,
+  pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeTestResultSummary {
+  pub id: String,
+  pub run_id: String,
+  pub node_id: String,
+  pub node_name: String,
+  pub protocol: String,
+  pub host: String,
+  pub port: i64,
+  pub result_order: i64,
+  pub success: bool,
+  pub latency_ms: Option<i64>,
+  pub error_message: String,
+  pub created_at: String,
+  pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeTestRunDetail {
+  pub run: NodeTestRunSummary,
+  pub results: Vec<NodeTestResultSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

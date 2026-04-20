@@ -2,8 +2,9 @@ use crate::config::ResolvedAppConfig;
 use crate::db::open_connection;
 use crate::models::{
   CadDocumentCreateInput, CadDocumentSummary, CadParseSummary, CadPipelineStats, DashboardStats, ExportResult,
-  NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats, ProjectDetail,
-  ProjectFilters, ProjectSummary, ProjectUpsertInput,
+  NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats, NodeTestRequest,
+  NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, ProjectDetail, ProjectFilters, ProjectSummary,
+  ProjectUpsertInput,
 };
 use crate::repositories::{backup, cad, nodes, projects};
 use crate::state::AppState;
@@ -129,6 +130,30 @@ pub fn get_node_overview_stats(state: State<'_, AppState>) -> Result<NodeOvervie
   let connection = open_connection(std::path::Path::new(&state.config.database_path))
     .map_err(|error| error.to_string())?;
   nodes::overview_stats(&connection).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn run_node_tests(state: State<'_, AppState>, request: NodeTestRequest) -> Result<NodeTestRunDetail, String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::run_node_tests(&mut connection, &request).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_node_test_runs(state: State<'_, AppState>, limit: Option<i64>) -> Result<Vec<NodeTestRunSummary>, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::list_node_test_runs(&connection, limit.unwrap_or(10)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_node_test_results(
+  state: State<'_, AppState>,
+  run_id: String,
+) -> Result<Vec<NodeTestResultSummary>, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::list_node_test_results(&connection, &run_id).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
