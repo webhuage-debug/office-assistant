@@ -19,6 +19,9 @@ export function DashboardPage() {
             <Link className="button button-secondary" to="/projects">
               查看项目
             </Link>
+            <Link className="button button-secondary" to="/cad">
+              CAD工作台
+            </Link>
             <Link className="button" to="/projects/new">
               新建项目
             </Link>
@@ -64,6 +67,37 @@ export function DashboardPage() {
       </section>
 
       <BackupPanel config={config} onImported={() => reloadStats()} />
+
+      <section className="card">
+        <div className="card-header">
+          <div>
+            <h2 className="card-title">CAD 识别预留</h2>
+            <p className="card-subtitle">
+              当前项目已经把 CAD 文件登记、任务状态和存储目录的底层架子搭好，后续只需要往这里接识别服务。
+            </p>
+          </div>
+          <Link className="button button-secondary" to="/cad">
+            打开 CAD 工作台
+          </Link>
+        </div>
+
+        <div className="detail-grid">
+          <div className="detail-item">
+            <span className="field-label">文件登记</span>
+            <div className="detail-value">本地复制并归档到独立目录</div>
+          </div>
+          <div className="detail-item">
+            <span className="field-label">识别输入</span>
+            <div className="detail-value">DWG / DXF / PDF / 图片</div>
+          </div>
+          <div className="detail-item detail-item-span-2">
+            <span className="field-label">后续扩展方向</span>
+            <div className="detail-value detail-remark">
+              图层识别、房间识别、设备识别、材料清单生成、报价草稿生成、人工复核保存到项目。
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

@@ -102,6 +102,46 @@ pub struct ProjectUpsertInput {
   pub quotation_items: Vec<QuotationItemInput>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CadDocumentCreateInput {
+  pub project_id: Option<String>,
+  pub source_path: String,
+  pub source_type: String,
+  pub note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CadDocumentSummary {
+  pub id: String,
+  pub project_id: Option<String>,
+  pub project_no: Option<String>,
+  pub customer_name: Option<String>,
+  pub original_file_name: String,
+  pub source_type: String,
+  pub source_path: String,
+  pub storage_path: String,
+  pub file_size_bytes: i64,
+  pub status: String,
+  pub analysis_job_count: i64,
+  pub latest_job_status: Option<String>,
+  pub note: String,
+  pub created_at: String,
+  pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CadPipelineStats {
+  pub total_documents: i64,
+  pub pending_documents: i64,
+  pub processing_documents: i64,
+  pub completed_documents: i64,
+  pub failed_documents: i64,
+  pub linked_projects: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageConfig {

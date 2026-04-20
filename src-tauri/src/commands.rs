@@ -1,9 +1,10 @@
 use crate::config::ResolvedAppConfig;
 use crate::db::open_connection;
 use crate::models::{
-  DashboardStats, ExportResult, ProjectDetail, ProjectFilters, ProjectSummary, ProjectUpsertInput,
+  CadDocumentCreateInput, CadDocumentSummary, CadPipelineStats, DashboardStats, ExportResult, ProjectDetail,
+  ProjectFilters, ProjectSummary, ProjectUpsertInput,
 };
-use crate::repositories::{backup, projects};
+use crate::repositories::{backup, cad, projects};
 use crate::state::AppState;
 use tauri::State;
 
@@ -56,6 +57,38 @@ pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStats,
   let connection = open_connection(std::path::Path::new(&state.config.database_path))
     .map_err(|error| error.to_string())?;
   projects::dashboard_stats(&connection).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_cad_documents(state: State<'_, AppState>) -> Result<Vec<CadDocumentSummary>, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  cad::list_cad_documents(&connection).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn create_cad_document(
+  state: State<'_, AppState>,
+  input: CadDocumentCreateInput,
+) -> Result<CadDocumentSummary, String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  cad::create_cad_document(&mut connection, std::path::Path::new(&state.config.upload_dir), &input)
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_cad_document(state: State<'_, AppState>, id: String) -> Result<(), String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  cad::delete_cad_document(&mut connection, &id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_cad_pipeline_stats(state: State<'_, AppState>) -> Result<CadPipelineStats, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  cad::pipeline_stats(&connection).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

@@ -6,6 +6,7 @@ import { ProjectListPage } from "@/pages/ProjectListPage";
 import { ProjectCreatePage } from "@/pages/ProjectCreatePage";
 import { ProjectDetailPage } from "@/pages/ProjectDetailPage";
 import { ProjectEditPage } from "@/pages/ProjectEditPage";
+import { CadWorkbenchPage } from "@/pages/CadWorkbenchPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
             <Route path="projects/new" element={<ProjectCreatePage />} />
             <Route path="projects/:id" element={<ProjectDetailPage />} />
             <Route path="projects/:id/edit" element={<ProjectEditPage />} />
+            <Route path="cad" element={<CadWorkbenchPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

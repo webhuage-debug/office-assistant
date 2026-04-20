@@ -516,6 +516,14 @@ button {
   margin: 1rem 0 0;
 }
 
+.cad-steps {
+  margin: 1rem 0 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.45rem;
+  color: var(--muted);
+}
+
 .cell-input {
   padding: 0.58rem 0.75rem;
   border-radius: 0.65rem;
