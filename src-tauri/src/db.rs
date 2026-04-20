@@ -78,6 +78,39 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
         FOREIGN KEY(cad_document_id) REFERENCES cad_documents(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS node_import_batches (
+        id TEXT PRIMARY KEY,
+        source_file_name TEXT NOT NULL,
+        source_file_path TEXT NOT NULL,
+        copied_file_path TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        source_label TEXT NOT NULL DEFAULT '',
+        total_rows INTEGER NOT NULL DEFAULT 0,
+        inserted_rows INTEGER NOT NULL DEFAULT 0,
+        updated_rows INTEGER NOT NULL DEFAULT 0,
+        duplicate_rows INTEGER NOT NULL DEFAULT 0,
+        invalid_rows INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS node_entries (
+        id TEXT PRIMARY KEY,
+        node_name TEXT NOT NULL,
+        protocol TEXT NOT NULL,
+        host TEXT NOT NULL,
+        port INTEGER NOT NULL DEFAULT 0,
+        remark TEXT NOT NULL DEFAULT '',
+        source_label TEXT NOT NULL DEFAULT '',
+        dedupe_key TEXT NOT NULL UNIQUE,
+        first_seen_batch_id TEXT NOT NULL,
+        last_seen_batch_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(first_seen_batch_id) REFERENCES node_import_batches(id) ON DELETE CASCADE,
+        FOREIGN KEY(last_seen_batch_id) REFERENCES node_import_batches(id) ON DELETE CASCADE
+      );
+
       CREATE INDEX IF NOT EXISTS idx_projects_project_no ON projects(project_no);
       CREATE INDEX IF NOT EXISTS idx_projects_customer_name ON projects(customer_name);
       CREATE INDEX IF NOT EXISTS idx_projects_phone ON projects(phone);
@@ -89,6 +122,10 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
       CREATE INDEX IF NOT EXISTS idx_cad_documents_updated_at ON cad_documents(updated_at);
       CREATE INDEX IF NOT EXISTS idx_cad_analysis_jobs_document_id ON cad_analysis_jobs(cad_document_id);
       CREATE INDEX IF NOT EXISTS idx_cad_analysis_jobs_status ON cad_analysis_jobs(status);
+      CREATE INDEX IF NOT EXISTS idx_node_import_batches_created_at ON node_import_batches(created_at);
+      CREATE INDEX IF NOT EXISTS idx_node_entries_protocol ON node_entries(protocol);
+      CREATE INDEX IF NOT EXISTS idx_node_entries_source_label ON node_entries(source_label);
+      CREATE INDEX IF NOT EXISTS idx_node_entries_updated_at ON node_entries(updated_at);
       "#,
     )
     .context("create sqlite schema")?;

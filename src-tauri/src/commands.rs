@@ -2,9 +2,10 @@ use crate::config::ResolvedAppConfig;
 use crate::db::open_connection;
 use crate::models::{
   CadDocumentCreateInput, CadDocumentSummary, CadParseSummary, CadPipelineStats, DashboardStats, ExportResult,
-  ProjectDetail, ProjectFilters, ProjectSummary, ProjectUpsertInput,
+  NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats, ProjectDetail,
+  ProjectFilters, ProjectSummary, ProjectUpsertInput,
 };
-use crate::repositories::{backup, cad, projects};
+use crate::repositories::{backup, cad, nodes, projects};
 use crate::state::AppState;
 use tauri::State;
 
@@ -96,6 +97,38 @@ pub fn get_cad_pipeline_stats(state: State<'_, AppState>) -> Result<CadPipelineS
   let connection = open_connection(std::path::Path::new(&state.config.database_path))
     .map_err(|error| error.to_string())?;
   cad::pipeline_stats(&connection).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_node_entries(state: State<'_, AppState>, filters: NodeListFilters) -> Result<Vec<NodeEntrySummary>, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::list_node_entries(&connection, &filters).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn import_node_entries(
+  state: State<'_, AppState>,
+  input: NodeImportInput,
+) -> Result<NodeImportBatchSummary, String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::import_node_entries(&mut connection, std::path::Path::new(&state.config.upload_dir), &input)
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_node_entry(state: State<'_, AppState>, id: String) -> Result<(), String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::delete_node_entry(&mut connection, &id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_node_overview_stats(state: State<'_, AppState>) -> Result<NodeOverviewStats, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::overview_stats(&connection).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

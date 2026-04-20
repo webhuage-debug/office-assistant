@@ -22,6 +22,9 @@ export function DashboardPage() {
             <Link className="button button-secondary" to="/cad">
               CAD工作台
             </Link>
+            <Link className="button button-secondary" to="/nodes">
+              节点台账
+            </Link>
             <Link className="button" to="/projects/new">
               新建项目
             </Link>
@@ -95,6 +98,35 @@ export function DashboardPage() {
             <div className="detail-value detail-remark">
               图层识别、房间识别、设备识别、材料清单生成、报价草稿生成、人工复核保存到项目。
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="card-header">
+          <div>
+            <h2 className="card-title">节点台账预留</h2>
+            <p className="card-subtitle">
+              这里先把你自己维护或有授权的节点清单整理起来，后面再顺着这份台账接测试、去重和月度文档。
+            </p>
+          </div>
+          <Link className="button button-secondary" to="/nodes">
+            打开节点台账
+          </Link>
+        </div>
+
+        <div className="detail-grid">
+          <div className="detail-item">
+            <span className="field-label">导入方式</span>
+            <div className="detail-value">JSON / CSV 清单导入</div>
+          </div>
+          <div className="detail-item">
+            <span className="field-label">数据范围</span>
+            <div className="detail-value">仅管理你自己的授权节点数据</div>
+          </div>
+          <div className="detail-item detail-item-span-2">
+            <span className="field-label">后续顺序</span>
+            <div className="detail-value detail-remark">节点测试器、去重评分、月报导出、历史对比和定时任务。</div>
           </div>
         </div>
       </section>

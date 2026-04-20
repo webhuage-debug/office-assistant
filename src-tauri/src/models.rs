@@ -170,6 +170,66 @@ pub struct CadPipelineStats {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NodeEntrySummary {
+  pub id: String,
+  pub node_name: String,
+  pub protocol: String,
+  pub host: String,
+  pub port: i64,
+  pub remark: String,
+  pub source_label: String,
+  pub source_file_name: String,
+  pub first_seen_batch_id: String,
+  pub last_seen_batch_id: String,
+  pub created_at: String,
+  pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeImportBatchSummary {
+  pub id: String,
+  pub source_file_name: String,
+  pub source_file_path: String,
+  pub copied_file_path: String,
+  pub source_type: String,
+  pub source_label: String,
+  pub total_rows: i64,
+  pub inserted_rows: i64,
+  pub updated_rows: i64,
+  pub duplicate_rows: i64,
+  pub invalid_rows: i64,
+  pub created_at: String,
+  pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeOverviewStats {
+  pub total_nodes: i64,
+  pub import_batches: i64,
+  pub source_labels: i64,
+  pub protocol_count: i64,
+  pub latest_batch_rows: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeListFilters {
+  pub keyword: Option<String>,
+  pub source_label: Option<String>,
+  pub protocol: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeImportInput {
+  pub source_path: String,
+  pub source_label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StorageConfig {
   pub database_file: String,
   pub export_dir: String,
