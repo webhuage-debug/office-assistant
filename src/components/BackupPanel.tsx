@@ -10,9 +10,10 @@ import { getErrorMessage } from "@/utils/errors";
 
 interface BackupPanelProps {
   config: ResolvedAppConfig | null;
+  onImported?: () => Promise<void> | void;
 }
 
-export function BackupPanel({ config }: BackupPanelProps) {
+export function BackupPanel({ config, onImported }: BackupPanelProps) {
   const [status, setStatus] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [isWorking, setIsWorking] = useState(false);
@@ -39,6 +40,13 @@ export function BackupPanel({ config }: BackupPanelProps) {
       return;
     }
 
+    const confirmed = window.confirm(
+      `确认导入备份文件「${file.name}」吗？这会清空当前本地数据并用备份内容覆盖。`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
     setIsWorking(true);
     setStatus(null);
 
@@ -46,6 +54,8 @@ export function BackupPanel({ config }: BackupPanelProps) {
       const content = await file.text();
       const result = await importJsonBackup(content);
       setStatus(`导入成功：${result.primaryPath}`);
+      setFile(null);
+      await onImported?.();
     } catch (caught) {
       setStatus(getErrorMessage(caught));
     } finally {

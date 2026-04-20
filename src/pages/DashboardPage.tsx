@@ -7,7 +7,7 @@ import { useProjectStore } from "@/store/ProjectStore";
 import { centsToCurrency } from "@/utils/money";
 
 export function DashboardPage() {
-  const { config, stats, isLoading } = useProjectStore();
+  const { config, stats, isLoading, reloadStats } = useProjectStore();
 
   return (
     <div className="page">
@@ -63,7 +63,7 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <BackupPanel config={config} />
+      <BackupPanel config={config} onImported={() => reloadStats()} />
     </div>
   );
 }
