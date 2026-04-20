@@ -20,6 +20,27 @@ export interface CadDocumentCreateInput {
   note: string;
 }
 
+export interface CadLayerCount {
+  layerName: string;
+  entityCount: number;
+}
+
+export interface CadParseSummary {
+  documentId: string;
+  parserName: string;
+  sourceType: string;
+  entityCount: number;
+  layerCount: number;
+  lineCount: number;
+  circleCount: number;
+  polylineCount: number;
+  textCount: number;
+  insertCount: number;
+  otherCount: number;
+  topLayers: CadLayerCount[];
+  generatedAt: string;
+}
+
 export interface CadDocumentSummary {
   id: string;
   projectId: string | null;
@@ -33,6 +54,7 @@ export interface CadDocumentSummary {
   status: CadStatusValue | string;
   analysisJobCount: number;
   latestJobStatus: string | null;
+  latestParseSummary: CadParseSummary | null;
   note: string;
   createdAt: string;
   updatedAt: string;

@@ -1,8 +1,8 @@
 use crate::config::ResolvedAppConfig;
 use crate::db::open_connection;
 use crate::models::{
-  CadDocumentCreateInput, CadDocumentSummary, CadPipelineStats, DashboardStats, ExportResult, ProjectDetail,
-  ProjectFilters, ProjectSummary, ProjectUpsertInput,
+  CadDocumentCreateInput, CadDocumentSummary, CadParseSummary, CadPipelineStats, DashboardStats, ExportResult,
+  ProjectDetail, ProjectFilters, ProjectSummary, ProjectUpsertInput,
 };
 use crate::repositories::{backup, cad, projects};
 use crate::state::AppState;
@@ -75,6 +75,13 @@ pub fn create_cad_document(
     .map_err(|error| error.to_string())?;
   cad::create_cad_document(&mut connection, std::path::Path::new(&state.config.upload_dir), &input)
     .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn parse_cad_document(state: State<'_, AppState>, id: String) -> Result<CadParseSummary, String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  cad::parse_cad_document(&mut connection, &id).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

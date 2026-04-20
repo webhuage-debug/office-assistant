@@ -1,6 +1,7 @@
 import type {
   CadDocumentCreateInput,
   CadDocumentSummary,
+  CadParseSummary,
   CadPipelineStats,
 } from "@/types/cad";
 import { callBackend } from "@/services/backendClient";
@@ -11,6 +12,10 @@ export async function listCadDocuments(): Promise<CadDocumentSummary[]> {
 
 export async function createCadDocument(input: CadDocumentCreateInput): Promise<CadDocumentSummary> {
   return callBackend<CadDocumentSummary>("create_cad_document", { input });
+}
+
+export async function parseCadDocument(id: string): Promise<CadParseSummary> {
+  return callBackend<CadParseSummary>("parse_cad_document", { id });
 }
 
 export async function deleteCadDocument(id: string): Promise<void> {

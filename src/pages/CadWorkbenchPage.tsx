@@ -5,7 +5,13 @@ import { CadDocumentTable } from "@/components/CadDocumentTable";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
-import { createCadDocument, deleteCadDocument, getCadPipelineStats, listCadDocuments } from "@/services/cadService";
+import {
+  createCadDocument,
+  deleteCadDocument,
+  getCadPipelineStats,
+  listCadDocuments,
+  parseCadDocument,
+} from "@/services/cadService";
 import { listProjects } from "@/services/projectService";
 import { useProjectStore } from "@/store/ProjectStore";
 import type { ProjectSummary } from "@/types/app";
@@ -19,6 +25,7 @@ export function CadWorkbenchPage() {
   const [stats, setStats] = useState<CadPipelineStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const latestParsedDocument = documents.find((document) => document.latestParseSummary);
 
   const loadWorkspace = async () => {
     setLoading(true);
@@ -45,8 +52,24 @@ export function CadWorkbenchPage() {
   }, []);
 
   const handleCreateDocument = async (input: Parameters<typeof createCadDocument>[0]) => {
-    await createCadDocument(input);
+    const created = await createCadDocument(input);
+    if (input.sourceType.toUpperCase() === "DXF" || input.sourcePath.trim().toLowerCase().endsWith(".dxf")) {
+      try {
+        await parseCadDocument(created.id);
+      } catch (caught) {
+        window.alert(getErrorMessage(caught));
+      }
+    }
     await loadWorkspace();
+  };
+
+  const handleParseDocument = async (document: CadDocumentSummary) => {
+    try {
+      await parseCadDocument(document.id);
+      await loadWorkspace();
+    } catch (caught) {
+      window.alert(getErrorMessage(caught));
+    }
   };
 
   const handleDeleteDocument = async (document: CadDocumentSummary) => {
@@ -124,6 +147,51 @@ export function CadWorkbenchPage() {
         <StatCard label="已关联项目" value={String(stats?.linkedProjects ?? 0)} hint="已绑定到项目记录" />
       </section>
 
+      {latestParsedDocument?.latestParseSummary ? (
+        <section className="card">
+          <div className="card-header">
+            <div>
+              <h2 className="card-title">最新解析结果</h2>
+              <p className="card-subtitle">
+                这里先展示 DXF 解析底座的真实输出，后面你给我样本和报价规则后，就能继续往自动报价推进。
+              </p>
+            </div>
+          </div>
+
+          <div className="detail-grid">
+            <div className="detail-item">
+              <span className="field-label">文件名</span>
+              <div className="detail-value">{latestParsedDocument.originalFileName}</div>
+            </div>
+            <div className="detail-item">
+              <span className="field-label">实体数量</span>
+              <div className="detail-value">{latestParsedDocument.latestParseSummary.entityCount}</div>
+            </div>
+            <div className="detail-item">
+              <span className="field-label">图层数量</span>
+              <div className="detail-value">{latestParsedDocument.latestParseSummary.layerCount}</div>
+            </div>
+            <div className="detail-item">
+              <span className="field-label">线 / 圆 / 文字</span>
+              <div className="detail-value">
+                {latestParsedDocument.latestParseSummary.lineCount} / {latestParsedDocument.latestParseSummary.circleCount} /{" "}
+                {latestParsedDocument.latestParseSummary.textCount}
+              </div>
+            </div>
+            <div className="detail-item detail-item-span-2">
+              <span className="field-label">主要图层</span>
+              <div className="detail-value detail-remark">
+                {latestParsedDocument.latestParseSummary.topLayers.length > 0
+                  ? latestParsedDocument.latestParseSummary.topLayers
+                      .map((layer) => `${layer.layerName} (${layer.entityCount})`)
+                      .join("， ")
+                  : "-"}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <CadDocumentForm projects={projects} uploadDir={config?.uploadDir ?? "-"} onSubmit={handleCreateDocument} />
 
       {!loading && !error && documents.length === 0 ? (
@@ -140,7 +208,7 @@ export function CadWorkbenchPage() {
             </div>
           </div>
 
-          <CadDocumentTable documents={documents} onDelete={handleDeleteDocument} />
+          <CadDocumentTable documents={documents} onDelete={handleDeleteDocument} onParse={handleParseDocument} />
         </section>
       )}
     </div>

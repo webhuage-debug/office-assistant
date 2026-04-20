@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { ProjectSummary } from "@/types/app";
 import {
   CAD_SOURCE_TYPE_OPTIONS,
@@ -12,6 +13,29 @@ interface CadDocumentFormProps {
   onSubmit: (input: CadDocumentCreateInput) => Promise<void>;
 }
 
+function sourceTypeFromPath(path: string): CadSourceTypeValue {
+  const fileName = path.split(/[\\/]/).pop() ?? path;
+  const extension = fileName.split(".").pop()?.trim().toLowerCase();
+
+  switch (extension) {
+    case "dwg":
+      return "DWG";
+    case "dxf":
+      return "DXF";
+    case "pdf":
+      return "PDF";
+    case "png":
+      return "PNG";
+    case "jpg":
+    case "jpeg":
+      return "JPG";
+    case "svg":
+      return "SVG";
+    default:
+      return "其他";
+  }
+}
+
 export function CadDocumentForm({ projects, uploadDir, onSubmit }: CadDocumentFormProps) {
   const [projectId, setProjectId] = useState("");
   const [sourceType, setSourceType] = useState<CadSourceTypeValue>("DWG");
@@ -19,12 +43,44 @@ export function CadDocumentForm({ projects, uploadDir, onSubmit }: CadDocumentFo
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPickingFile, setIsPickingFile] = useState(false);
 
   const resetForm = () => {
     setProjectId("");
     setSourceType("DWG");
     setSourcePath("");
     setNote("");
+  };
+
+  const handlePickFile = async () => {
+    setError(null);
+    setIsPickingFile(true);
+
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        title: "选择 CAD 文件",
+        filters: [
+          {
+            name: "CAD 文件",
+            extensions: ["dxf", "dwg", "pdf", "png", "jpg", "jpeg", "svg"],
+          },
+        ],
+      });
+
+      const resolvedPath = Array.isArray(selected) ? selected[0] : selected;
+      if (!resolvedPath) {
+        return;
+      }
+
+      setSourcePath(resolvedPath);
+      setSourceType(sourceTypeFromPath(resolvedPath));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "选择文件失败。");
+    } finally {
+      setIsPickingFile(false);
+    }
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -92,12 +148,17 @@ export function CadDocumentForm({ projects, uploadDir, onSubmit }: CadDocumentFo
 
           <label className="field field-span-2">
             <span className="field-label">CAD 文件本机路径</span>
-            <input
-              className="field-input"
-              value={sourcePath}
-              onChange={(event) => setSourcePath(event.target.value)}
-              placeholder="例如：C:\\Users\\xxx\\Desktop\\方案图.dwg"
-            />
+            <div className="input-inline-group">
+              <input
+                className="field-input"
+                value={sourcePath}
+                onChange={(event) => setSourcePath(event.target.value)}
+                placeholder="例如：C:\\Users\\xxx\\Desktop\\方案图.dwg"
+              />
+              <button type="button" className="button button-secondary" onClick={() => void handlePickFile()}>
+                {isPickingFile ? "选择中..." : "选择文件"}
+              </button>
+            </div>
           </label>
 
           <label className="field field-span-2">

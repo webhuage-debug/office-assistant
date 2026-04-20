@@ -6,9 +6,19 @@ import { formatFileSize } from "@/utils/file";
 interface CadDocumentTableProps {
   documents: CadDocumentSummary[];
   onDelete: (document: CadDocumentSummary) => void;
+  onParse: (document: CadDocumentSummary) => void;
 }
 
-export function CadDocumentTable({ documents, onDelete }: CadDocumentTableProps) {
+function renderParseSummary(document: CadDocumentSummary): string {
+  const summary = document.latestParseSummary;
+  if (!summary) {
+    return "-";
+  }
+
+  return `实体 ${summary.entityCount} / 图层 ${summary.layerCount} / 线 ${summary.lineCount} / 文字 ${summary.textCount}`;
+}
+
+export function CadDocumentTable({ documents, onDelete, onParse }: CadDocumentTableProps) {
   return (
     <div className="table-wrap">
       <table className="table table-compact">
@@ -18,6 +28,7 @@ export function CadDocumentTable({ documents, onDelete }: CadDocumentTableProps)
             <th>文件名</th>
             <th>类型</th>
             <th>状态</th>
+            <th>解析摘要</th>
             <th>任务数</th>
             <th>存储路径</th>
             <th>备注</th>
@@ -47,6 +58,9 @@ export function CadDocumentTable({ documents, onDelete }: CadDocumentTableProps)
                 </td>
                 <td>{document.sourceType}</td>
                 <td>{document.status}</td>
+                <td className="table-truncate" title={renderParseSummary(document)}>
+                  {renderParseSummary(document)}
+                </td>
                 <td>{document.analysisJobCount}</td>
                 <td className="table-truncate" title={document.storagePath}>
                   {document.storagePath}
@@ -57,6 +71,11 @@ export function CadDocumentTable({ documents, onDelete }: CadDocumentTableProps)
                 <td>{formatDateTime(document.updatedAt)}</td>
                 <td>
                   <div className="table-actions">
+                    {document.sourceType.toUpperCase() === "DXF" ? (
+                      <button type="button" className="button button-link" onClick={() => onParse(document)}>
+                        解析
+                      </button>
+                    ) : null}
                     <button type="button" className="button button-link button-danger" onClick={() => onDelete(document)}>
                       删除
                     </button>
@@ -66,7 +85,7 @@ export function CadDocumentTable({ documents, onDelete }: CadDocumentTableProps)
             ))
           ) : (
             <tr>
-              <td colSpan={9}>
+              <td colSpan={10}>
                 <div className="table-empty">当前还没有 CAD 文件登记记录。</div>
               </td>
             </tr>

@@ -11,6 +11,7 @@ use tauri::Manager;
 
 fn main() {
   tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
       let config = config::load_or_init_config(app.handle()).expect("failed to load app config");
       db::bootstrap_database(&config.database_path).expect("failed to initialize database");
@@ -27,6 +28,7 @@ fn main() {
       commands::get_dashboard_stats,
       commands::list_cad_documents,
       commands::create_cad_document,
+      commands::parse_cad_document,
       commands::delete_cad_document,
       commands::get_cad_pipeline_stats,
       commands::export_json_backup,

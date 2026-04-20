@@ -1,13 +1,19 @@
-use crate::models::{CadDocumentCreateInput, CadDocumentSummary, CadPipelineStats};
+use crate::models::{
+  CadDocumentCreateInput, CadDocumentSummary, CadLayerCount, CadParseSummary, CadPipelineStats,
+};
 use crate::repositories::projects;
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
+use dxf::Drawing;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 const CAD_PENDING_STATUS: &str = "待识别";
+const CAD_COMPLETED_STATUS: &str = "已完成";
+const CAD_FAILED_STATUS: &str = "识别失败";
 
 #[derive(Debug)]
 struct CadDocumentBase {
@@ -24,6 +30,12 @@ struct CadDocumentBase {
   note: String,
   created_at: String,
   updated_at: String,
+}
+
+#[derive(Debug)]
+struct LatestCadJob {
+  status: String,
+  output_summary: Option<String>,
 }
 
 fn now_iso() -> String {
@@ -69,6 +81,132 @@ fn extension_for_source_type(source_type: &str, source_path: &Path) -> String {
   }
 }
 
+fn is_dxf_document(source_type: &str, source_path: &Path) -> bool {
+  source_type.trim().eq_ignore_ascii_case("DXF")
+    || source_path
+      .extension()
+      .and_then(|extension| extension.to_str())
+      .map(|extension| extension.eq_ignore_ascii_case("dxf"))
+      .unwrap_or(false)
+}
+
+fn classify_entity_kind(raw_kind: &str) -> &'static str {
+  let kind = raw_kind.to_ascii_lowercase();
+
+  if kind.contains("lwpolyline") || kind.contains("polyline") {
+    "polyline"
+  } else if kind.contains("mtext") || kind.contains("text") {
+    "text"
+  } else if kind.contains("insert") {
+    "insert"
+  } else if kind.contains("circle") {
+    "circle"
+  } else if kind.contains("line") {
+    "line"
+  } else {
+    "other"
+  }
+}
+
+fn build_parse_summary(document_id: &str, source_type: &str, drawing: &Drawing) -> CadParseSummary {
+  let mut entity_count = 0_i64;
+  let mut line_count = 0_i64;
+  let mut circle_count = 0_i64;
+  let mut polyline_count = 0_i64;
+  let mut text_count = 0_i64;
+  let mut insert_count = 0_i64;
+  let mut other_count = 0_i64;
+  let mut layer_counts: HashMap<String, i64> = HashMap::new();
+
+  for entity in drawing.entities() {
+    entity_count += 1;
+    let layer_name = entity.common.layer.clone();
+    *layer_counts.entry(layer_name).or_insert(0) += 1;
+
+    match classify_entity_kind(&format!("{:?}", &entity.specific)) {
+      "line" => line_count += 1,
+      "circle" => circle_count += 1,
+      "polyline" => polyline_count += 1,
+      "text" => text_count += 1,
+      "insert" => insert_count += 1,
+      _ => other_count += 1,
+    }
+  }
+
+  let mut top_layers: Vec<CadLayerCount> = layer_counts
+    .into_iter()
+    .map(|(layer_name, entity_count)| CadLayerCount { layer_name, entity_count })
+    .collect();
+  let layer_count = top_layers.len() as i64;
+  top_layers.sort_by(|left, right| {
+    right
+      .entity_count
+      .cmp(&left.entity_count)
+      .then_with(|| left.layer_name.cmp(&right.layer_name))
+  });
+  top_layers.truncate(10);
+
+  CadParseSummary {
+    document_id: document_id.to_string(),
+    parser_name: "dxf-crate".to_string(),
+    source_type: source_type.to_string(),
+    entity_count,
+    layer_count,
+    line_count,
+    circle_count,
+    polyline_count,
+    text_count,
+    insert_count,
+    other_count,
+    top_layers,
+    generated_at: now_iso(),
+  }
+}
+
+fn record_analysis_job(
+  connection: &mut Connection,
+  document_id: &str,
+  status: &str,
+  job_type: &str,
+  input_summary: String,
+  output_summary: String,
+  error_message: String,
+) -> Result<()> {
+  let now = now_iso();
+  let transaction = connection.transaction().context("start cad analysis transaction")?;
+
+  transaction
+    .execute(
+      "UPDATE cad_documents SET status = ?, updated_at = ? WHERE id = ?",
+      params![status, now, document_id],
+    )
+    .context("update cad document status")?;
+
+  transaction
+    .execute(
+      r#"
+      INSERT INTO cad_analysis_jobs (
+        id, cad_document_id, job_type, status, input_summary, output_summary, error_message, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      "#,
+      params![
+        Uuid::new_v4().to_string(),
+        document_id,
+        job_type,
+        status,
+        input_summary,
+        output_summary,
+        error_message,
+        now,
+        now,
+      ],
+    )
+    .context("insert cad analysis job")?;
+
+  transaction.commit().context("commit cad analysis transaction")?;
+  Ok(())
+}
+
 fn ensure_cad_dir(upload_dir: &Path) -> Result<PathBuf> {
   let cad_dir = upload_dir.join("cad");
   fs::create_dir_all(&cad_dir).context("create cad upload directory")?;
@@ -102,20 +240,31 @@ fn enrich_document(connection: &Connection, base: CadDocumentBase) -> Result<Cad
     )
     .context("count cad analysis jobs")?;
 
-  let latest_job_status = connection
+  let latest_job = connection
     .query_row(
       r#"
-      SELECT status
+      SELECT status, output_summary
       FROM cad_analysis_jobs
       WHERE cad_document_id = ?
       ORDER BY created_at DESC, updated_at DESC
       LIMIT 1
       "#,
       params![base.id.as_str()],
-      |row| row.get::<_, String>(0),
+      |row| {
+        Ok(LatestCadJob {
+          status: row.get(0)?,
+          output_summary: row.get(1)?,
+        })
+      },
     )
     .optional()
-    .context("load latest cad job status")?;
+    .context("load latest cad job")?;
+
+  let latest_parse_summary = latest_job
+    .as_ref()
+    .and_then(|job| job.output_summary.as_ref())
+    .and_then(|summary| serde_json::from_str::<CadParseSummary>(summary).ok());
+  let latest_job_status = latest_job.as_ref().map(|job| job.status.clone());
 
   Ok(CadDocumentSummary {
     id: base.id,
@@ -130,6 +279,7 @@ fn enrich_document(connection: &Connection, base: CadDocumentBase) -> Result<Cad
     status: base.status,
     analysis_job_count,
     latest_job_status,
+    latest_parse_summary,
     note: base.note,
     created_at: base.created_at,
     updated_at: base.updated_at,
@@ -166,6 +316,16 @@ fn get_document_base(connection: &Connection, id: &str) -> Result<Option<CadDocu
     Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
     Err(error) => Err(anyhow::Error::new(error).context("load cad document")),
   }
+}
+
+fn build_document_input_summary(base: &CadDocumentBase) -> String {
+  serde_json::json!({
+    "projectId": base.project_id,
+    "sourcePath": base.source_path,
+    "sourceType": base.source_type,
+    "originalFileName": base.original_file_name,
+  })
+  .to_string()
 }
 
 pub fn list_cad_documents(connection: &Connection) -> Result<Vec<CadDocumentSummary>> {
@@ -240,14 +400,6 @@ pub fn create_cad_document(
   let storage_path = cad_dir.join(format!("{document_id}{}", extension_for_source_type(&source_type, source_path)));
   fs::copy(source_path, &storage_path).context("copy cad source file")?;
 
-  let input_summary = serde_json::json!({
-    "projectId": project_id.clone(),
-    "sourcePath": source_path.to_string_lossy(),
-    "sourceType": source_type,
-    "originalFileName": original_file_name,
-  })
-  .to_string();
-
   let now = now_iso();
   let transaction = connection.transaction().context("start cad document transaction")?;
 
@@ -276,27 +428,6 @@ pub fn create_cad_document(
       )
       .context("insert cad document")?;
 
-    transaction
-      .execute(
-        r#"
-        INSERT INTO cad_analysis_jobs (
-          id, cad_document_id, job_type, status, input_summary, output_summary, error_message, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        "#,
-        params![
-          Uuid::new_v4().to_string(),
-          document_id,
-          "recognition",
-          CAD_PENDING_STATUS,
-          input_summary,
-          "",
-          "",
-          now,
-          now,
-        ],
-      )
-      .context("insert cad analysis job")?;
-
     transaction.commit().context("commit cad document transaction")?;
     Ok(())
   })();
@@ -310,6 +441,46 @@ pub fn create_cad_document(
     .map(|base| enrich_document(connection, base))
     .transpose()?
     .ok_or_else(|| anyhow!("登记 CAD 文件失败。"))
+}
+
+pub fn parse_cad_document(connection: &mut Connection, id: &str) -> Result<CadParseSummary> {
+  let base = get_document_base(connection, id)?
+    .ok_or_else(|| anyhow!("CAD 文件不存在，无法解析。"))?;
+
+  if !is_dxf_document(&base.source_type, Path::new(&base.storage_path)) {
+    return Err(anyhow!("当前仅支持 DXF 文件解析。"));
+  }
+
+  let input_summary = build_document_input_summary(&base);
+  match Drawing::load_file(&base.storage_path).context("load dxf file") {
+    Ok(drawing) => {
+      let summary = build_parse_summary(&base.id, &base.source_type, &drawing);
+      let output_summary = serde_json::to_string(&summary).context("serialize cad parse summary")?;
+      record_analysis_job(
+        connection,
+        &base.id,
+        CAD_COMPLETED_STATUS,
+        "dxf_parse",
+        input_summary,
+        output_summary,
+        String::new(),
+      )?;
+      Ok(summary)
+    }
+    Err(error) => {
+      let message = error.to_string();
+      let _ = record_analysis_job(
+        connection,
+        &base.id,
+        CAD_FAILED_STATUS,
+        "dxf_parse",
+        input_summary,
+        String::new(),
+        message.clone(),
+      );
+      Err(error).context("parse dxf file")
+    }
+  }
 }
 
 pub fn delete_cad_document(connection: &mut Connection, id: &str) -> Result<()> {

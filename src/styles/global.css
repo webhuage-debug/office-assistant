@@ -219,6 +219,13 @@ button {
   gap: 0.35rem;
 }
 
+.input-inline-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
 .field-label {
   color: var(--muted);
   font-size: 0.875rem;

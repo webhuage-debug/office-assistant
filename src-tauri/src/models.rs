@@ -113,6 +113,31 @@ pub struct CadDocumentCreateInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CadLayerCount {
+  pub layer_name: String,
+  pub entity_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CadParseSummary {
+  pub document_id: String,
+  pub parser_name: String,
+  pub source_type: String,
+  pub entity_count: i64,
+  pub layer_count: i64,
+  pub line_count: i64,
+  pub circle_count: i64,
+  pub polyline_count: i64,
+  pub text_count: i64,
+  pub insert_count: i64,
+  pub other_count: i64,
+  pub top_layers: Vec<CadLayerCount>,
+  pub generated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CadDocumentSummary {
   pub id: String,
   pub project_id: Option<String>,
@@ -126,6 +151,7 @@ pub struct CadDocumentSummary {
   pub status: String,
   pub analysis_job_count: i64,
   pub latest_job_status: Option<String>,
+  pub latest_parse_summary: Option<CadParseSummary>,
   pub note: String,
   pub created_at: String,
   pub updated_at: String,
