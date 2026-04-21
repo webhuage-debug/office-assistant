@@ -5,6 +5,7 @@ import { NodeEntryTable } from "@/components/NodeEntryTable";
 import { NodeImportForm } from "@/components/NodeImportForm";
 import { NodeQualityTable } from "@/components/NodeQualityTable";
 import { NodeReportExportPanel } from "@/components/NodeReportExportPanel";
+import { NodeReportHistoryPanel } from "@/components/NodeReportHistoryPanel";
 import { NodeTestResultTable } from "@/components/NodeTestResultTable";
 import { NodeTestRunTable } from "@/components/NodeTestRunTable";
 import { PageHeader } from "@/components/PageHeader";
@@ -56,6 +57,7 @@ export function NodeWorkbenchPage() {
   const [activeResults, setActiveResults] = useState<NodeTestResultSummary[]>([]);
   const [qualityStats, setQualityStats] = useState<NodeQualityStats | null>(null);
   const [qualityRows, setQualityRows] = useState<NodeQualitySummary[]>([]);
+  const [reportRefreshToken, setReportRefreshToken] = useState(0);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -441,7 +443,13 @@ export function NodeWorkbenchPage() {
         <NodeQualityTable rows={qualityRows} />
       </section>
 
-      <NodeReportExportPanel config={config} keyword={keyword} />
+      <NodeReportExportPanel
+        config={config}
+        keyword={keyword}
+        onExported={() => setReportRefreshToken((value) => value + 1)}
+      />
+
+      <NodeReportHistoryPanel refreshToken={reportRefreshToken} />
     </div>
   );
 }

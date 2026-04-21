@@ -11,6 +11,7 @@ export interface NodeTestRequest {
 export interface NodeReportExportInput {
   filters: NodeListFilters;
   month?: string;
+  triggerSource?: string;
 }
 
 export interface NodeListFilters {
@@ -121,4 +122,63 @@ export interface NodeQualityStats {
   stableNodes: number;
   averageScore: number;
   topScore: number;
+}
+
+export interface NodeReportSnapshotSummary {
+  id: string;
+  reportMonth: string;
+  triggerSource: string;
+  filterSnapshotJson: string;
+  scopeSummary: string;
+  totalRankedNodes: number;
+  recommendedNodes: number;
+  excellentNodes: number;
+  stableNodes: number;
+  averageScore: number;
+  topScore: number;
+  totalTests: number;
+  successCount: number;
+  failureCount: number;
+  markdownPath: string;
+  csvPath: string;
+  recommendedCsvPath: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NodeReportChangeSummary {
+  nodeId: string;
+  nodeName: string;
+  protocol: string;
+  host: string;
+  port: number;
+  currentScore?: number | null;
+  previousScore?: number | null;
+  scoreDelta: number;
+  currentSuccessRate?: number | null;
+  previousSuccessRate?: number | null;
+  currentRecommendationLevel?: string | null;
+  previousRecommendationLevel?: string | null;
+  changeType: string;
+}
+
+export interface NodeReportComparisonSummary {
+  currentSnapshot: NodeReportSnapshotSummary;
+  previousSnapshot?: NodeReportSnapshotSummary | null;
+  recentSnapshots: NodeReportSnapshotSummary[];
+  totalNodesDelta: number;
+  recommendedDelta: number;
+  excellentDelta: number;
+  stableDelta: number;
+  averageScoreDelta: number;
+  topScoreDelta: number;
+  totalTestsDelta: number;
+  successCountDelta: number;
+  failureCountDelta: number;
+  addedNodes: number;
+  removedNodes: number;
+  improvedNodes: number;
+  declinedNodes: number;
+  unchangedNodes: number;
+  changeRows: NodeReportChangeSummary[];
 }

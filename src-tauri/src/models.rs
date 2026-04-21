@@ -240,6 +240,7 @@ pub struct NodeTestRequest {
 pub struct NodeReportExportInput {
   pub filters: NodeListFilters,
   pub month: Option<String>,
+  pub trigger_source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,6 +316,71 @@ pub struct NodeQualityStats {
   pub stable_nodes: i64,
   pub average_score: i64,
   pub top_score: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeReportSnapshotSummary {
+  pub id: String,
+  pub report_month: String,
+  pub trigger_source: String,
+  pub filter_snapshot_json: String,
+  pub scope_summary: String,
+  pub total_ranked_nodes: i64,
+  pub recommended_nodes: i64,
+  pub excellent_nodes: i64,
+  pub stable_nodes: i64,
+  pub average_score: i64,
+  pub top_score: i64,
+  pub total_tests: i64,
+  pub success_count: i64,
+  pub failure_count: i64,
+  pub markdown_path: String,
+  pub csv_path: String,
+  pub recommended_csv_path: String,
+  pub created_at: String,
+  pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeReportChangeSummary {
+  pub node_id: String,
+  pub node_name: String,
+  pub protocol: String,
+  pub host: String,
+  pub port: i64,
+  pub current_score: Option<i64>,
+  pub previous_score: Option<i64>,
+  pub score_delta: i64,
+  pub current_success_rate: Option<f64>,
+  pub previous_success_rate: Option<f64>,
+  pub current_recommendation_level: Option<String>,
+  pub previous_recommendation_level: Option<String>,
+  pub change_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeReportComparisonSummary {
+  pub current_snapshot: NodeReportSnapshotSummary,
+  pub previous_snapshot: Option<NodeReportSnapshotSummary>,
+  pub recent_snapshots: Vec<NodeReportSnapshotSummary>,
+  pub total_nodes_delta: i64,
+  pub recommended_delta: i64,
+  pub excellent_delta: i64,
+  pub stable_delta: i64,
+  pub average_score_delta: i64,
+  pub top_score_delta: i64,
+  pub total_tests_delta: i64,
+  pub success_count_delta: i64,
+  pub failure_count_delta: i64,
+  pub added_nodes: i64,
+  pub removed_nodes: i64,
+  pub improved_nodes: i64,
+  pub declined_nodes: i64,
+  pub unchanged_nodes: i64,
+  pub change_rows: Vec<NodeReportChangeSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

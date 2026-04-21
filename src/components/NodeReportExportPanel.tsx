@@ -6,6 +6,7 @@ import { getErrorMessage } from "@/utils/errors";
 interface NodeReportExportPanelProps {
   config: ResolvedAppConfig | null;
   keyword: string;
+  onExported?: () => void;
 }
 
 function currentMonthLabel(): string {
@@ -15,7 +16,7 @@ function currentMonthLabel(): string {
   return `${year}-${month}`;
 }
 
-export function NodeReportExportPanel({ config, keyword }: NodeReportExportPanelProps) {
+export function NodeReportExportPanel({ config, keyword, onExported }: NodeReportExportPanelProps) {
   const [month, setMonth] = useState(currentMonthLabel());
   const [status, setStatus] = useState<string | null>(null);
   const [isWorking, setIsWorking] = useState(false);
@@ -29,9 +30,11 @@ export function NodeReportExportPanel({ config, keyword }: NodeReportExportPanel
       const result = await exportNodeMonthlyReport({
         filters,
         month: month.trim() || undefined,
+        triggerSource: "manual",
       });
 
       setStatus(`月报已导出：${result.primaryPath}`);
+      onExported?.();
     } catch (caught) {
       setStatus(getErrorMessage(caught));
     } finally {
@@ -68,7 +71,7 @@ export function NodeReportExportPanel({ config, keyword }: NodeReportExportPanel
         </div>
       </div>
 
-      <p className="card-note">导出内容包含本月评分概览、推荐节点清单、淘汰节点清单和完整 CSV 表格。</p>
+      <p className="card-note">导出内容包含本月评分概览、推荐节点清单、待清理节点清单和完整 CSV 表格。</p>
 
       <div className="form-actions">
         <button className="button" type="button" disabled={isWorking} onClick={() => void handleExport()}>

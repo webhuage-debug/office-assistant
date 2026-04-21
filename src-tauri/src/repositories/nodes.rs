@@ -1,7 +1,7 @@
 use crate::models::{
   ExportResult, NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats,
-  NodeReportExportInput, NodeTestRequest, NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, NodeQualityStats,
-  NodeQualitySummary,
+  NodeReportChangeSummary, NodeReportComparisonSummary, NodeReportExportInput, NodeReportSnapshotSummary,
+  NodeTestRequest, NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, NodeQualityStats, NodeQualitySummary,
 };
 use anyhow::{anyhow, Context, Result};
 use chrono::{Datelike, NaiveDate, Utc};
@@ -10,7 +10,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::Deserialize;
 use std::convert::TryFrom;
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
@@ -922,6 +922,27 @@ struct MonthRange {
   end_iso: String,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct NodeReportItemRow {
+  node_id: String,
+  node_name: String,
+  protocol: String,
+  host: String,
+  port: i64,
+  source_label: String,
+  source_file_name: String,
+  total_tests: i64,
+  success_count: i64,
+  failure_count: i64,
+  success_rate: f64,
+  average_latency_ms: Option<i64>,
+  score: i64,
+  recommendation_level: String,
+  recommendation_reason: String,
+  last_test_at: String,
+}
+
 fn parse_month_range(month: Option<&str>) -> Result<MonthRange> {
   let now = Utc::now().date_naive();
   let label = month
@@ -966,6 +987,51 @@ fn row_to_node_quality_aggregate(row: &rusqlite::Row<'_>) -> rusqlite::Result<No
     success_count: row.get("success_count")?,
     average_latency_ms: row.get("average_latency_ms")?,
     last_test_at: row.get::<_, Option<String>>("last_test_at")?.unwrap_or_default(),
+  })
+}
+
+fn row_to_report_snapshot_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeReportSnapshotSummary> {
+  Ok(NodeReportSnapshotSummary {
+    id: row.get("id")?,
+    report_month: row.get("report_month")?,
+    trigger_source: row.get("trigger_source")?,
+    filter_snapshot_json: row.get("filter_snapshot_json")?,
+    scope_summary: row.get("scope_summary")?,
+    total_ranked_nodes: row.get("total_ranked_nodes")?,
+    recommended_nodes: row.get("recommended_nodes")?,
+    excellent_nodes: row.get("excellent_nodes")?,
+    stable_nodes: row.get("stable_nodes")?,
+    average_score: row.get("average_score")?,
+    top_score: row.get("top_score")?,
+    total_tests: row.get("total_tests")?,
+    success_count: row.get("success_count")?,
+    failure_count: row.get("failure_count")?,
+    markdown_path: row.get("markdown_path")?,
+    csv_path: row.get("csv_path")?,
+    recommended_csv_path: row.get("recommended_csv_path")?,
+    created_at: row.get("created_at")?,
+    updated_at: row.get("updated_at")?,
+  })
+}
+
+fn row_to_report_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeReportItemRow> {
+  Ok(NodeReportItemRow {
+    node_id: row.get("node_id")?,
+    node_name: row.get("node_name")?,
+    protocol: row.get("protocol")?,
+    host: row.get("host")?,
+    port: row.get("port")?,
+    source_label: row.get("source_label")?,
+    source_file_name: row.get("source_file_name")?,
+    total_tests: row.get("total_tests")?,
+    success_count: row.get("success_count")?,
+    failure_count: row.get("failure_count")?,
+    success_rate: row.get("success_rate")?,
+    average_latency_ms: row.get("average_latency_ms")?,
+    score: row.get("score")?,
+    recommendation_level: row.get("recommendation_level")?,
+    recommendation_reason: row.get("recommendation_reason")?,
+    last_test_at: row.get("last_test_at")?,
   })
 }
 
@@ -1438,12 +1504,13 @@ fn write_recommended_csv(path: &Path, rankings: &[NodeQualitySummary]) -> Result
 }
 
 pub fn export_node_monthly_report(
-  connection: &Connection,
+  connection: &mut Connection,
   export_dir: &Path,
   app_name: &str,
   input: &NodeReportExportInput,
 ) -> Result<ExportResult> {
   let month_range = parse_month_range(input.month.as_deref())?;
+  let trigger_source = normalize_trigger_source(input.trigger_source.clone());
   let rankings = collect_node_quality_rankings(connection, &input.filters, Some(&month_range))?;
   fs::create_dir_all(export_dir).context("create export directory")?;
 
@@ -1462,6 +1529,17 @@ pub fn export_node_monthly_report(
   .context("write monthly report markdown")?;
   write_quality_csv(&csv_path, &rankings)?;
   write_recommended_csv(&recommended_csv_path, &rankings)?;
+  let _snapshot = persist_node_report_snapshot(
+    connection,
+    &month_range,
+    &trigger_source,
+    &input.filters,
+    &rankings,
+    &markdown_path,
+    &csv_path,
+    &recommended_csv_path,
+    &generated_at,
+  )?;
 
   Ok(ExportResult {
     kind: "node-report".to_string(),
@@ -1473,4 +1551,406 @@ pub fn export_node_monthly_report(
     ],
     generated_at,
   })
+}
+
+fn persist_node_report_snapshot(
+  connection: &mut Connection,
+  month_range: &MonthRange,
+  trigger_source: &str,
+  filters: &NodeListFilters,
+  rankings: &[NodeQualitySummary],
+  markdown_path: &Path,
+  csv_path: &Path,
+  recommended_csv_path: &Path,
+  generated_at: &str,
+) -> Result<NodeReportSnapshotSummary> {
+  let snapshot_id = Uuid::new_v4().to_string();
+  let filter_snapshot_json = serde_json::to_string(filters).context("serialize node report filter snapshot")?;
+  let scope_summary = summarize_quality_filters(filters);
+  let (total_ranked_nodes, recommended_nodes, excellent_nodes, stable_nodes, average_score, top_score, total_tests) =
+    aggregate_quality_metrics(rankings);
+  let success_count = rankings.iter().map(|item| item.success_count).sum::<i64>();
+  let failure_count = rankings.iter().map(|item| item.failure_count).sum::<i64>();
+
+  let transaction = connection.transaction().context("start node report snapshot transaction")?;
+
+  transaction
+    .execute(
+      r#"
+      INSERT INTO node_report_snapshots (
+        id, report_month, trigger_source, filter_snapshot_json, scope_summary,
+        total_ranked_nodes, recommended_nodes, excellent_nodes, stable_nodes,
+        average_score, top_score, total_tests, success_count, failure_count,
+        markdown_path, csv_path, recommended_csv_path, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      "#,
+      params![
+        &snapshot_id,
+        &month_range.label,
+        trigger_source,
+        &filter_snapshot_json,
+        &scope_summary,
+        total_ranked_nodes,
+        recommended_nodes,
+        excellent_nodes,
+        stable_nodes,
+        average_score,
+        top_score,
+        total_tests,
+        success_count,
+        failure_count,
+        markdown_path.to_string_lossy().to_string(),
+        csv_path.to_string_lossy().to_string(),
+        recommended_csv_path.to_string_lossy().to_string(),
+        generated_at,
+        generated_at,
+      ],
+    )
+    .context("insert node report snapshot")?;
+
+  for row in rankings {
+    transaction
+      .execute(
+        r#"
+        INSERT INTO node_report_items (
+          id, snapshot_id, node_id, node_name, protocol, host, port, source_label, source_file_name,
+          total_tests, success_count, failure_count, success_rate, average_latency_ms, score,
+          recommendation_level, recommendation_reason, last_test_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+        params![
+          Uuid::new_v4().to_string(),
+          &snapshot_id,
+          &row.id,
+          &row.node_name,
+          &row.protocol,
+          &row.host,
+          row.port,
+          &row.source_label,
+          &row.source_file_name,
+          row.total_tests,
+          row.success_count,
+          row.failure_count,
+          row.success_rate,
+          row.average_latency_ms,
+          row.score,
+          &row.recommendation_level,
+          &row.recommendation_reason,
+          &row.last_test_at,
+          generated_at,
+          generated_at,
+        ],
+      )
+      .context("insert node report item")?;
+  }
+
+  transaction.commit().context("commit node report snapshot transaction")?;
+
+  Ok(NodeReportSnapshotSummary {
+    id: snapshot_id,
+    report_month: month_range.label.clone(),
+    trigger_source: trigger_source.to_string(),
+    filter_snapshot_json,
+    scope_summary,
+    total_ranked_nodes,
+    recommended_nodes,
+    excellent_nodes,
+    stable_nodes,
+    average_score,
+    top_score,
+    total_tests,
+    success_count,
+    failure_count,
+    markdown_path: markdown_path.to_string_lossy().to_string(),
+    csv_path: csv_path.to_string_lossy().to_string(),
+    recommended_csv_path: recommended_csv_path.to_string_lossy().to_string(),
+    created_at: generated_at.to_string(),
+    updated_at: generated_at.to_string(),
+  })
+}
+
+pub fn list_node_report_snapshots(connection: &Connection, limit: i64) -> Result<Vec<NodeReportSnapshotSummary>> {
+  let limit = if limit <= 0 { 8 } else { limit.min(100) };
+  let mut statement = connection
+    .prepare(
+      r#"
+      SELECT
+        id,
+        report_month,
+        trigger_source,
+        filter_snapshot_json,
+        scope_summary,
+        total_ranked_nodes,
+        recommended_nodes,
+        excellent_nodes,
+        stable_nodes,
+        average_score,
+        top_score,
+        total_tests,
+        success_count,
+        failure_count,
+        markdown_path,
+        csv_path,
+        recommended_csv_path,
+        created_at,
+        updated_at
+      FROM node_report_snapshots
+      ORDER BY report_month DESC, created_at DESC
+      LIMIT ?
+      "#,
+    )
+    .context("prepare node report snapshot query")?;
+
+  let rows = statement
+    .query_map(params![limit], row_to_report_snapshot_summary)
+    .context("query node report snapshots")?;
+
+  let mut snapshots = Vec::new();
+  for row in rows {
+    snapshots.push(row.context("map node report snapshot row")?);
+  }
+
+  Ok(snapshots)
+}
+
+fn load_node_report_items(connection: &Connection, snapshot_id: &str) -> Result<Vec<NodeReportItemRow>> {
+  let mut statement = connection
+    .prepare(
+      r#"
+      SELECT
+        node_id,
+        node_name,
+        protocol,
+        host,
+        port,
+        source_label,
+        source_file_name,
+        total_tests,
+        success_count,
+        failure_count,
+        success_rate,
+        average_latency_ms,
+        score,
+        recommendation_level,
+        recommendation_reason,
+        last_test_at
+      FROM node_report_items
+      WHERE snapshot_id = ?
+      ORDER BY score DESC, success_rate DESC, total_tests DESC, average_latency_ms ASC, last_test_at DESC
+      "#,
+    )
+    .context("prepare node report item query")?;
+
+  let rows = statement
+    .query_map(params![snapshot_id], row_to_report_item)
+    .context("query node report items")?;
+
+  let mut items = Vec::new();
+  for row in rows {
+    items.push(row.context("map node report item row")?);
+  }
+
+  Ok(items)
+}
+
+fn build_node_report_change_summary(
+  current: Option<&NodeReportItemRow>,
+  previous: Option<&NodeReportItemRow>,
+) -> NodeReportChangeSummary {
+  match (current, previous) {
+    (Some(current), Some(previous)) => {
+      let score_delta = current.score - previous.score;
+      let change_type = if score_delta > 0 {
+        "上升"
+      } else if score_delta < 0 {
+        "下降"
+      } else {
+        "持平"
+      };
+
+      NodeReportChangeSummary {
+        node_id: current.node_id.clone(),
+        node_name: current.node_name.clone(),
+        protocol: current.protocol.clone(),
+        host: current.host.clone(),
+        port: current.port,
+        current_score: Some(current.score),
+        previous_score: Some(previous.score),
+        score_delta,
+        current_success_rate: Some(current.success_rate),
+        previous_success_rate: Some(previous.success_rate),
+        current_recommendation_level: Some(current.recommendation_level.clone()),
+        previous_recommendation_level: Some(previous.recommendation_level.clone()),
+        change_type: change_type.to_string(),
+      }
+    }
+    (Some(current), None) => NodeReportChangeSummary {
+      node_id: current.node_id.clone(),
+      node_name: current.node_name.clone(),
+      protocol: current.protocol.clone(),
+      host: current.host.clone(),
+      port: current.port,
+      current_score: Some(current.score),
+      previous_score: None,
+      score_delta: current.score,
+      current_success_rate: Some(current.success_rate),
+      previous_success_rate: None,
+      current_recommendation_level: Some(current.recommendation_level.clone()),
+      previous_recommendation_level: None,
+      change_type: "新增".to_string(),
+    },
+    (None, Some(previous)) => NodeReportChangeSummary {
+      node_id: previous.node_id.clone(),
+      node_name: previous.node_name.clone(),
+      protocol: previous.protocol.clone(),
+      host: previous.host.clone(),
+      port: previous.port,
+      current_score: None,
+      previous_score: Some(previous.score),
+      score_delta: -previous.score,
+      current_success_rate: None,
+      previous_success_rate: Some(previous.success_rate),
+      current_recommendation_level: None,
+      previous_recommendation_level: Some(previous.recommendation_level.clone()),
+      change_type: "移除".to_string(),
+    },
+    (None, None) => NodeReportChangeSummary {
+      node_id: String::new(),
+      node_name: String::new(),
+      protocol: String::new(),
+      host: String::new(),
+      port: 0,
+      current_score: None,
+      previous_score: None,
+      score_delta: 0,
+      current_success_rate: None,
+      previous_success_rate: None,
+      current_recommendation_level: None,
+      previous_recommendation_level: None,
+      change_type: "持平".to_string(),
+    },
+  }
+}
+
+fn sort_node_report_changes(rows: &mut [NodeReportChangeSummary]) {
+  rows.sort_by(|left, right| {
+    right
+      .score_delta
+      .abs()
+      .cmp(&left.score_delta.abs())
+      .then_with(|| left.change_type.cmp(&right.change_type))
+      .then_with(|| left.node_name.cmp(&right.node_name))
+  });
+}
+
+fn build_node_report_comparison(
+  current_snapshot: NodeReportSnapshotSummary,
+  previous_snapshot: Option<NodeReportSnapshotSummary>,
+  recent_snapshots: Vec<NodeReportSnapshotSummary>,
+  current_items: Vec<NodeReportItemRow>,
+  previous_items: Vec<NodeReportItemRow>,
+) -> NodeReportComparisonSummary {
+  let Some(previous_snapshot) = previous_snapshot else {
+    return NodeReportComparisonSummary {
+      current_snapshot,
+      previous_snapshot: None,
+      recent_snapshots,
+      total_nodes_delta: 0,
+      recommended_delta: 0,
+      excellent_delta: 0,
+      stable_delta: 0,
+      average_score_delta: 0,
+      top_score_delta: 0,
+      total_tests_delta: 0,
+      success_count_delta: 0,
+      failure_count_delta: 0,
+      added_nodes: 0,
+      removed_nodes: 0,
+      improved_nodes: 0,
+      declined_nodes: 0,
+      unchanged_nodes: 0,
+      change_rows: Vec::new(),
+    };
+  };
+
+  let current_map: HashMap<String, NodeReportItemRow> =
+    current_items.into_iter().map(|row| (row.node_id.clone(), row)).collect();
+  let previous_map: HashMap<String, NodeReportItemRow> =
+    previous_items.into_iter().map(|row| (row.node_id.clone(), row)).collect();
+
+  let mut added_nodes = 0_i64;
+  let mut removed_nodes = 0_i64;
+  let mut improved_nodes = 0_i64;
+  let mut declined_nodes = 0_i64;
+  let mut unchanged_nodes = 0_i64;
+  let mut change_rows = Vec::new();
+
+  for (node_id, current) in &current_map {
+    if let Some(previous) = previous_map.get(node_id) {
+      let change = build_node_report_change_summary(Some(current), Some(previous));
+      match change.score_delta.cmp(&0) {
+        Ordering::Greater => improved_nodes += 1,
+        Ordering::Less => declined_nodes += 1,
+        Ordering::Equal => unchanged_nodes += 1,
+      }
+      change_rows.push(change);
+    } else {
+      added_nodes += 1;
+      change_rows.push(build_node_report_change_summary(Some(current), None));
+    }
+  }
+
+  for (node_id, previous) in &previous_map {
+    if !current_map.contains_key(node_id) {
+      removed_nodes += 1;
+      change_rows.push(build_node_report_change_summary(None, Some(previous)));
+    }
+  }
+
+  sort_node_report_changes(&mut change_rows);
+  change_rows.truncate(20);
+
+  NodeReportComparisonSummary {
+    total_nodes_delta: current_snapshot.total_ranked_nodes - previous_snapshot.total_ranked_nodes,
+    recommended_delta: current_snapshot.recommended_nodes - previous_snapshot.recommended_nodes,
+    excellent_delta: current_snapshot.excellent_nodes - previous_snapshot.excellent_nodes,
+    stable_delta: current_snapshot.stable_nodes - previous_snapshot.stable_nodes,
+    average_score_delta: current_snapshot.average_score - previous_snapshot.average_score,
+    top_score_delta: current_snapshot.top_score - previous_snapshot.top_score,
+    total_tests_delta: current_snapshot.total_tests - previous_snapshot.total_tests,
+    success_count_delta: current_snapshot.success_count - previous_snapshot.success_count,
+    failure_count_delta: current_snapshot.failure_count - previous_snapshot.failure_count,
+    added_nodes,
+    removed_nodes,
+    improved_nodes,
+    declined_nodes,
+    unchanged_nodes,
+    current_snapshot,
+    previous_snapshot: Some(previous_snapshot),
+    recent_snapshots,
+    change_rows,
+  }
+}
+
+pub fn get_node_report_comparison(connection: &Connection) -> Result<Option<NodeReportComparisonSummary>> {
+  let recent_snapshots = list_node_report_snapshots(connection, 8)?;
+  let Some(current_snapshot) = recent_snapshots.first().cloned() else {
+    return Ok(None);
+  };
+
+  let current_items = load_node_report_items(connection, &current_snapshot.id)?;
+  let comparison = if let Some(previous_snapshot) = recent_snapshots.get(1).cloned() {
+    let previous_items = load_node_report_items(connection, &previous_snapshot.id)?;
+    build_node_report_comparison(
+      current_snapshot,
+      Some(previous_snapshot),
+      recent_snapshots,
+      current_items,
+      previous_items,
+    )
+  } else {
+    build_node_report_comparison(current_snapshot, None, recent_snapshots, current_items, Vec::new())
+  };
+
+  Ok(Some(comparison))
 }

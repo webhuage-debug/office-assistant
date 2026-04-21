@@ -6,6 +6,8 @@ import type {
   NodeImportInput,
   NodeListFilters,
   NodeReportExportInput,
+  NodeReportComparisonSummary,
+  NodeReportSnapshotSummary,
   NodeTestRequest,
   NodeTestResultSummary,
   NodeTestRunDetail,
@@ -56,4 +58,12 @@ export async function getNodeQualityStats(filters: NodeListFilters = {}): Promis
 
 export async function exportNodeMonthlyReport(input: NodeReportExportInput): Promise<ExportResult> {
   return callBackend<ExportResult>("export_node_monthly_report", { input });
+}
+
+export async function listNodeReportSnapshots(limit = 8): Promise<NodeReportSnapshotSummary[]> {
+  return callBackend<NodeReportSnapshotSummary[]>("list_node_report_snapshots", { limit });
+}
+
+export async function getNodeReportComparison(): Promise<NodeReportComparisonSummary | null> {
+  return callBackend<NodeReportComparisonSummary | null>("get_node_report_comparison");
 }

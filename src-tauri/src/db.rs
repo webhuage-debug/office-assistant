@@ -143,6 +143,53 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
         FOREIGN KEY(run_id) REFERENCES node_test_runs(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS node_report_snapshots (
+        id TEXT PRIMARY KEY,
+        report_month TEXT NOT NULL,
+        trigger_source TEXT NOT NULL DEFAULT 'manual',
+        filter_snapshot_json TEXT NOT NULL DEFAULT '{}',
+        scope_summary TEXT NOT NULL DEFAULT '',
+        total_ranked_nodes INTEGER NOT NULL DEFAULT 0,
+        recommended_nodes INTEGER NOT NULL DEFAULT 0,
+        excellent_nodes INTEGER NOT NULL DEFAULT 0,
+        stable_nodes INTEGER NOT NULL DEFAULT 0,
+        average_score INTEGER NOT NULL DEFAULT 0,
+        top_score INTEGER NOT NULL DEFAULT 0,
+        total_tests INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        failure_count INTEGER NOT NULL DEFAULT 0,
+        markdown_path TEXT NOT NULL DEFAULT '',
+        csv_path TEXT NOT NULL DEFAULT '',
+        recommended_csv_path TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS node_report_items (
+        id TEXT PRIMARY KEY,
+        snapshot_id TEXT NOT NULL,
+        node_id TEXT NOT NULL,
+        node_name TEXT NOT NULL,
+        protocol TEXT NOT NULL,
+        host TEXT NOT NULL,
+        port INTEGER NOT NULL DEFAULT 0,
+        source_label TEXT NOT NULL DEFAULT '',
+        source_file_name TEXT NOT NULL DEFAULT '',
+        total_tests INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        failure_count INTEGER NOT NULL DEFAULT 0,
+        success_rate REAL NOT NULL DEFAULT 0,
+        average_latency_ms INTEGER,
+        score INTEGER NOT NULL DEFAULT 0,
+        recommendation_level TEXT NOT NULL DEFAULT '',
+        recommendation_reason TEXT NOT NULL DEFAULT '',
+        last_test_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(snapshot_id) REFERENCES node_report_snapshots(id) ON DELETE CASCADE,
+        UNIQUE(snapshot_id, node_id)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_projects_project_no ON projects(project_no);
       CREATE INDEX IF NOT EXISTS idx_projects_customer_name ON projects(customer_name);
       CREATE INDEX IF NOT EXISTS idx_projects_phone ON projects(phone);
@@ -162,6 +209,10 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
       CREATE INDEX IF NOT EXISTS idx_node_test_runs_status ON node_test_runs(status);
       CREATE INDEX IF NOT EXISTS idx_node_test_results_run_id ON node_test_results(run_id);
       CREATE INDEX IF NOT EXISTS idx_node_test_results_success ON node_test_results(success);
+      CREATE INDEX IF NOT EXISTS idx_node_report_snapshots_month ON node_report_snapshots(report_month);
+      CREATE INDEX IF NOT EXISTS idx_node_report_snapshots_created_at ON node_report_snapshots(created_at);
+      CREATE INDEX IF NOT EXISTS idx_node_report_items_snapshot_id ON node_report_items(snapshot_id);
+      CREATE INDEX IF NOT EXISTS idx_node_report_items_node_id ON node_report_items(node_id);
       "#,
     )
     .context("create sqlite schema")?;

@@ -4,7 +4,8 @@ use crate::models::{
   CadDocumentCreateInput, CadDocumentSummary, CadParseSummary, CadPipelineStats, DashboardStats, ExportResult,
   NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats, NodeReportExportInput,
   NodeTestRequest, NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, ProjectDetail, ProjectFilters,
-  ProjectSummary, ProjectUpsertInput, NodeQualityStats, NodeQualitySummary,
+  ProjectSummary, ProjectUpsertInput, NodeQualityStats, NodeQualitySummary, NodeReportComparisonSummary,
+  NodeReportSnapshotSummary,
 };
 use crate::repositories::{backup, cad, nodes, projects};
 use crate::state::AppState;
@@ -221,13 +222,32 @@ pub fn export_node_monthly_report(
   state: State<'_, AppState>,
   input: NodeReportExportInput,
 ) -> Result<ExportResult, String> {
-  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
     .map_err(|error| error.to_string())?;
   nodes::export_node_monthly_report(
-    &connection,
+    &mut connection,
     std::path::Path::new(&state.config.export_dir),
     &state.config.app_name,
     &input,
   )
   .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_node_report_snapshots(
+  state: State<'_, AppState>,
+  limit: Option<i64>,
+) -> Result<Vec<NodeReportSnapshotSummary>, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::list_node_report_snapshots(&connection, limit.unwrap_or(8)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_node_report_comparison(
+  state: State<'_, AppState>,
+) -> Result<Option<NodeReportComparisonSummary>, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  nodes::get_node_report_comparison(&connection).map_err(|error| error.to_string())
 }
