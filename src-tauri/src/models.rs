@@ -438,12 +438,48 @@ pub struct NodeMonthlyJobUpsertInput {
   pub protocol: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesTaskDraftInput {
+  pub title: String,
+  pub instruction: String,
+  #[serde(default = "default_hermes_source_type")]
+  pub source_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesTaskDraftSummary {
+  pub id: String,
+  pub title: String,
+  pub instruction: String,
+  pub source_type: String,
+  pub source_label: String,
+  pub report_month: String,
+  pub source_snapshot_id: String,
+  pub payload_path: String,
+  pub payload_size_bytes: i64,
+  pub generated_at: String,
+  pub created_at: String,
+  pub updated_at: String,
+}
+
+fn default_hermes_source_type() -> String {
+  "latestNodeReport".to_string()
+}
+
+fn default_hermes_inbox_dir() -> String {
+  "data/hermes/inbox".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageConfig {
   pub database_file: String,
   pub export_dir: String,
   pub upload_dir: String,
+  #[serde(default = "default_hermes_inbox_dir")]
+  pub hermes_inbox_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -462,5 +498,6 @@ pub struct ResolvedAppConfig {
   pub database_path: String,
   pub export_dir: String,
   pub upload_dir: String,
+  pub hermes_inbox_dir: String,
   pub storage: StorageConfig,
 }

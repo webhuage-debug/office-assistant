@@ -3,6 +3,7 @@
   "storage": {
     "databaseFile": "data/smart-home-office-assistant.db",
     "exportDir": "exports",
-    "uploadDir": "uploads"
+    "uploadDir": "uploads",
+    "hermesInboxDir": "data/hermes/inbox"
   }
 }

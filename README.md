@@ -62,6 +62,7 @@ pnpm tauri:build
 - 数据库文件：`<AppData>/smart-home-office-assistant/data/smart-home-office-assistant.db`
 - 导出目录：`<AppData>/smart-home-office-assistant/exports`
 - 上传目录：`<AppData>/smart-home-office-assistant/uploads`
+- Hermes 草稿目录：`<AppData>/smart-home-office-assistant/data/hermes/inbox`
 
 如果后续需要调整数据库或导出路径，可以修改配置文件中的相对路径，而不是写死本机路径。
 
@@ -108,6 +109,7 @@ pnpm tauri:build
 - DXF 文件选择、导入和基础解析摘要
 - 节点台账导入、去重、批量测试、评分、不通节点删除、月报导出和历史对比
 - 节点月度自动任务、定时复测和执行历史记录
+- Hermes 任务草稿生成器，可把最新节点月报整理成标准 JSON 交给后续自动化处理
 
 ## CAD 识别与自动报价预留架构
 
@@ -142,6 +144,7 @@ pnpm tauri:build
 5. 月度历史快照：每次导出都会保存快照，后面可以直接做跨月差异对比。
 6. 定时任务与历史对比：每月自动复测，保留上个月结果并做差异对比。
 7. 月度自动任务面板：可以手动创建、启用、停用、立即执行和删除自动任务，后面接 Hermes 时可直接复用这一层。
+8. Hermes 任务草稿：把最新节点月报快照和跨月对比打包成标准 JSON，投递到本地 inbox 目录，后面由 Hermes 读取和处理。
 
 这条线会一直保持“本地可运行、可导出、可迁移”的思路，只处理你自己维护或有授权的数据源。
 
@@ -163,6 +166,15 @@ pnpm tauri:build
 - `database/`：数据层
 
 目前仓库仍以 Tauri 桌面应用为主，后续如果改成服务器部署，优先迁移业务逻辑和数据访问层，尽量减少页面层改动。
+
+## Hermes 自动化预留
+
+当前已经把 Hermes 需要的底层入口先准备好：
+
+1. 月报快照会保留在本地 SQLite 中，方便后面反复读取。
+2. 月度自动任务会持续生成执行历史，后面可以和 Hermes 的调度结果对接。
+3. Hermes 任务草稿会输出标准 JSON 文件到 `data/hermes/inbox`，后续可以直接交给 Hermes 读取。
+4. 如果以后要扩展到 CAD 识别或项目自动总结，也可以沿用这套“任务草稿 + 本地 inbox + 历史记录”的结构。
 
 ## 说明
 

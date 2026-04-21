@@ -58,6 +58,9 @@ fn main() {
       commands::update_node_monthly_job,
       commands::delete_node_monthly_job,
       commands::run_node_monthly_job_now,
+      commands::list_hermes_task_drafts,
+      commands::create_hermes_task_draft,
+      commands::delete_hermes_task_draft,
     ])
     .run(tauri::generate_context!())
     .expect("error while running smart-home-office-assistant");

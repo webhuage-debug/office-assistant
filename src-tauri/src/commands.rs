@@ -6,8 +6,9 @@ use crate::models::{
   NodeTestRequest, NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, ProjectDetail, ProjectFilters,
   ProjectSummary, ProjectUpsertInput, NodeQualityStats, NodeQualitySummary, NodeReportComparisonSummary,
   NodeReportSnapshotSummary, NodeMonthlyJobRunSummary, NodeMonthlyJobSummary, NodeMonthlyJobUpsertInput,
+  HermesTaskDraftInput, HermesTaskDraftSummary,
 };
-use crate::repositories::{backup, cad, node_jobs, nodes, projects};
+use crate::repositories::{backup, cad, hermes, node_jobs, nodes, projects};
 use crate::state::AppState;
 use tauri::State;
 
@@ -308,4 +309,35 @@ pub fn run_node_monthly_job_now(state: State<'_, AppState>, id: String) -> Resul
     &id,
   )
   .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_hermes_task_drafts(
+  state: State<'_, AppState>,
+  limit: Option<i64>,
+) -> Result<Vec<HermesTaskDraftSummary>, String> {
+  hermes::list_hermes_task_drafts(std::path::Path::new(&state.config.hermes_inbox_dir), limit.unwrap_or(10))
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn create_hermes_task_draft(
+  state: State<'_, AppState>,
+  input: HermesTaskDraftInput,
+) -> Result<HermesTaskDraftSummary, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  hermes::create_hermes_task_draft(
+    &connection,
+    std::path::Path::new(&state.config.hermes_inbox_dir),
+    &state.config.app_name,
+    &input,
+  )
+  .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_hermes_task_draft(state: State<'_, AppState>, id: String) -> Result<(), String> {
+  hermes::delete_hermes_task_draft(std::path::Path::new(&state.config.hermes_inbox_dir), &id)
+    .map_err(|error| error.to_string())
 }

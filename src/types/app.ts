@@ -2,6 +2,7 @@ export interface StorageConfig {
   databaseFile: string;
   exportDir: string;
   uploadDir: string;
+  hermesInboxDir: string;
 }
 
 export interface AppConfig {
@@ -16,6 +17,7 @@ export interface ResolvedAppConfig {
   databasePath: string;
   exportDir: string;
   uploadDir: string;
+  hermesInboxDir: string;
   storage: StorageConfig;
 }
 
