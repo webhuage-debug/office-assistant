@@ -6,7 +6,7 @@ use crate::models::{
   NodeTestRequest, NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, ProjectDetail, ProjectFilters,
   ProjectSummary, ProjectUpsertInput, NodeQualityStats, NodeQualitySummary, NodeReportComparisonSummary,
   NodeReportSnapshotSummary, NodeMonthlyJobRunSummary, NodeMonthlyJobSummary, NodeMonthlyJobUpsertInput,
-  HermesTaskDraftInput, HermesTaskDraftSummary,
+  HermesTaskDraftInput, HermesTaskDraftSummary, HermesTaskResultInput, HermesTaskResultSummary,
 };
 use crate::repositories::{backup, cad, hermes, node_jobs, nodes, projects};
 use crate::state::AppState;
@@ -340,4 +340,38 @@ pub fn create_hermes_task_draft(
 pub fn delete_hermes_task_draft(state: State<'_, AppState>, id: String) -> Result<(), String> {
   hermes::delete_hermes_task_draft(std::path::Path::new(&state.config.hermes_inbox_dir), &id)
     .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_hermes_task_results(
+  state: State<'_, AppState>,
+  limit: Option<i64>,
+) -> Result<Vec<HermesTaskResultSummary>, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  hermes::list_hermes_task_results(&connection, limit.unwrap_or(10)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn create_hermes_task_result(
+  state: State<'_, AppState>,
+  input: HermesTaskResultInput,
+) -> Result<HermesTaskResultSummary, String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  hermes::create_hermes_task_result(
+    &mut connection,
+    std::path::Path::new(&state.config.hermes_inbox_dir),
+    std::path::Path::new(&state.config.hermes_outbox_dir),
+    &state.config.app_name,
+    &input,
+  )
+  .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_hermes_task_result(state: State<'_, AppState>, id: String) -> Result<(), String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  hermes::delete_hermes_task_result(&mut connection, &id).map_err(|error| error.to_string())
 }

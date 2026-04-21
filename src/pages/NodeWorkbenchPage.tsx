@@ -5,6 +5,7 @@ import { NodeEntryTable } from "@/components/NodeEntryTable";
 import { NodeImportForm } from "@/components/NodeImportForm";
 import { NodeQualityTable } from "@/components/NodeQualityTable";
 import { HermesTaskPanel } from "@/components/HermesTaskPanel";
+import { HermesResultPanel } from "@/components/HermesResultPanel";
 import { NodeMonthlyJobPanel } from "@/components/NodeMonthlyJobPanel";
 import { NodeReportExportPanel } from "@/components/NodeReportExportPanel";
 import { NodeReportHistoryPanel } from "@/components/NodeReportHistoryPanel";
@@ -456,6 +457,8 @@ export function NodeWorkbenchPage() {
       <NodeReportHistoryPanel refreshToken={reportRefreshToken} />
 
       <HermesTaskPanel config={config} refreshToken={reportRefreshToken} />
+
+      <HermesResultPanel config={config} refreshToken={reportRefreshToken} />
     </div>
   );
 }

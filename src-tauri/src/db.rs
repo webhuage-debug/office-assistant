@@ -227,6 +227,25 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
         FOREIGN KEY(job_id) REFERENCES node_monthly_jobs(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS hermes_task_results (
+        id TEXT PRIMARY KEY,
+        draft_id TEXT NOT NULL DEFAULT '',
+        draft_title TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'completed',
+        summary TEXT NOT NULL DEFAULT '',
+        source_type TEXT NOT NULL DEFAULT 'manual',
+        source_label TEXT NOT NULL DEFAULT '',
+        report_month TEXT NOT NULL DEFAULT '',
+        source_snapshot_id TEXT NOT NULL DEFAULT '',
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        payload_path TEXT NOT NULL DEFAULT '',
+        payload_size_bytes INTEGER NOT NULL DEFAULT 0,
+        generated_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_projects_project_no ON projects(project_no);
       CREATE INDEX IF NOT EXISTS idx_projects_customer_name ON projects(customer_name);
       CREATE INDEX IF NOT EXISTS idx_projects_phone ON projects(phone);
@@ -254,6 +273,9 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
       CREATE INDEX IF NOT EXISTS idx_node_monthly_jobs_next_run_at ON node_monthly_jobs(next_run_at);
       CREATE INDEX IF NOT EXISTS idx_node_monthly_job_runs_job_id ON node_monthly_job_runs(job_id);
       CREATE INDEX IF NOT EXISTS idx_node_monthly_job_runs_created_at ON node_monthly_job_runs(created_at);
+      CREATE INDEX IF NOT EXISTS idx_hermes_task_results_created_at ON hermes_task_results(created_at);
+      CREATE INDEX IF NOT EXISTS idx_hermes_task_results_status ON hermes_task_results(status);
+      CREATE INDEX IF NOT EXISTS idx_hermes_task_results_draft_id ON hermes_task_results(draft_id);
       "#,
     )
     .context("create sqlite schema")?;

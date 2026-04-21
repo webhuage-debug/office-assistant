@@ -1,10 +1,12 @@
 use crate::models::{
-  HermesTaskDraftInput, HermesTaskDraftSummary, NodeReportComparisonSummary, NodeReportSnapshotSummary,
+  HermesTaskDraftInput, HermesTaskDraftSummary, HermesTaskResultInput, HermesTaskResultSummary,
+  NodeReportComparisonSummary, NodeReportSnapshotSummary,
 };
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
 use uuid::Uuid;
@@ -26,6 +28,23 @@ struct HermesTaskEnvelope {
   generated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HermesTaskResultEnvelope {
+  id: String,
+  draft_id: String,
+  draft_title: String,
+  title: String,
+  status: String,
+  summary: String,
+  source_type: String,
+  source_label: String,
+  report_month: String,
+  source_snapshot_id: String,
+  payload_json: Value,
+  generated_at: String,
+}
+
 fn now_iso() -> String {
   Utc::now().to_rfc3339()
 }
@@ -43,6 +62,15 @@ fn normalize_source_type(value: &str) -> Result<String> {
     "latestNodeReport" => Ok("latestNodeReport".to_string()),
     "manual" => Ok("manual".to_string()),
     other => Err(anyhow!("无效的 Hermes 来源类型: {other}")),
+  }
+}
+
+fn normalize_result_status(value: &str) -> Result<String> {
+  match normalize_text(value).to_lowercase().as_str() {
+    "completed" => Ok("completed".to_string()),
+    "needs_review" | "needs-review" | "review" => Ok("needs_review".to_string()),
+    "failed" => Ok("failed".to_string()),
+    other => Err(anyhow!("无效的 Hermes 结果状态: {other}")),
   }
 }
 
@@ -89,6 +117,11 @@ fn load_latest_node_report_context(
     .ok_or_else(|| anyhow!("暂无可用的节点月报快照，请先导出月报"))?;
   let comparison = nodes::get_node_report_comparison(connection)?;
   Ok((latest_snapshot, comparison))
+}
+
+fn load_hermes_task_draft_summary_by_id(inbox_dir: &Path, draft_id: &str) -> Result<Option<HermesTaskDraftSummary>> {
+  let drafts = list_hermes_task_drafts(inbox_dir, 100)?;
+  Ok(drafts.into_iter().find(|draft| draft.id == draft_id))
 }
 
 fn build_envelope(
@@ -227,5 +260,270 @@ pub fn delete_hermes_task_draft(inbox_dir: &Path, id: &str) -> Result<()> {
     .ok_or_else(|| anyhow!("Hermes 任务草稿不存在"))?;
 
   fs::remove_file(&draft.payload_path).context("delete hermes task payload")?;
+  Ok(())
+}
+
+fn load_hermes_task_result_by_id(
+  connection: &Connection,
+  id: &str,
+) -> Result<Option<HermesTaskResultSummary>> {
+  let mut statement = connection
+    .prepare(
+      r#"
+      SELECT
+        id,
+        draft_id,
+        draft_title,
+        title,
+        status,
+        summary,
+        source_type,
+        source_label,
+        report_month,
+        source_snapshot_id,
+        payload_path,
+        payload_size_bytes,
+        generated_at,
+        created_at,
+        updated_at
+      FROM hermes_task_results
+      WHERE id = ?
+      "#,
+    )
+    .context("prepare hermes task result lookup")?;
+
+  let result = statement
+    .query_row(rusqlite::params![id], |row| {
+      Ok(HermesTaskResultSummary {
+        id: row.get("id")?,
+        draft_id: row.get("draft_id")?,
+        draft_title: row.get("draft_title")?,
+        title: row.get("title")?,
+        status: row.get("status")?,
+        summary: row.get("summary")?,
+        source_type: row.get("source_type")?,
+        source_label: row.get("source_label")?,
+        report_month: row.get("report_month")?,
+        source_snapshot_id: row.get("source_snapshot_id")?,
+        payload_path: row.get("payload_path")?,
+        payload_size_bytes: row.get("payload_size_bytes")?,
+        generated_at: row.get("generated_at")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+      })
+    })
+    .optional()
+    .context("query hermes task result lookup")?;
+
+  Ok(result)
+}
+
+fn row_to_result_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<HermesTaskResultSummary> {
+  Ok(HermesTaskResultSummary {
+    id: row.get("id")?,
+    draft_id: row.get("draft_id")?,
+    draft_title: row.get("draft_title")?,
+    title: row.get("title")?,
+    status: row.get("status")?,
+    summary: row.get("summary")?,
+    source_type: row.get("source_type")?,
+    source_label: row.get("source_label")?,
+    report_month: row.get("report_month")?,
+    source_snapshot_id: row.get("source_snapshot_id")?,
+    payload_path: row.get("payload_path")?,
+    payload_size_bytes: row.get("payload_size_bytes")?,
+    generated_at: row.get("generated_at")?,
+    created_at: row.get("created_at")?,
+    updated_at: row.get("updated_at")?,
+  })
+}
+
+pub fn list_hermes_task_results(connection: &Connection, limit: i64) -> Result<Vec<HermesTaskResultSummary>> {
+  let limit = if limit <= 0 { 10 } else { limit.min(100) };
+  let mut statement = connection
+    .prepare(
+      r#"
+      SELECT
+        id,
+        draft_id,
+        draft_title,
+        title,
+        status,
+        summary,
+        source_type,
+        source_label,
+        report_month,
+        source_snapshot_id,
+        payload_path,
+        payload_size_bytes,
+        generated_at,
+        created_at,
+        updated_at
+      FROM hermes_task_results
+      ORDER BY created_at DESC, updated_at DESC
+      LIMIT ?
+      "#,
+    )
+    .context("prepare hermes task result list query")?;
+
+  let rows = statement
+    .query_map(rusqlite::params![limit], row_to_result_summary)
+    .context("query hermes task results")?;
+
+  let mut results = Vec::new();
+  for row in rows {
+    results.push(row.context("map hermes task result row")?);
+  }
+
+  Ok(results)
+}
+
+pub fn create_hermes_task_result(
+  connection: &mut Connection,
+  inbox_dir: &Path,
+  outbox_dir: &Path,
+  app_name: &str,
+  input: &HermesTaskResultInput,
+) -> Result<HermesTaskResultSummary> {
+  fs::create_dir_all(outbox_dir).context("create hermes outbox directory")?;
+
+  let title = normalize_text(&input.title);
+  let summary = normalize_text(&input.summary);
+  if title.is_empty() {
+    return Err(anyhow!("Hermes 结果标题不能为空"));
+  }
+  if summary.is_empty() {
+    return Err(anyhow!("Hermes 结果摘要不能为空"));
+  }
+
+  let status = normalize_result_status(&input.status)?;
+  let payload_value: Value = serde_json::from_str(&input.payload_json).context("parse hermes result json")?;
+  let payload_json_text = serde_json::to_string_pretty(&payload_value).context("serialize hermes result json")?;
+  let generated_at = now_iso();
+  let result_id = Uuid::new_v4().to_string();
+  let result_suffix: String = result_id.chars().filter(|ch| *ch != '-').take(8).collect();
+
+  let draft_summary = match input.draft_id.as_ref().map(|value| normalize_text(value)).filter(|value| !value.is_empty()) {
+    Some(draft_id) => {
+      let draft = load_hermes_task_draft_summary_by_id(inbox_dir, &draft_id)?
+        .ok_or_else(|| anyhow!("关联的 Hermes 草稿不存在"))?;
+      Some(draft)
+    }
+    None => None,
+  };
+
+  let (draft_id, draft_title, source_type, source_label, report_month, source_snapshot_id) = match draft_summary {
+    Some(draft) => (
+      draft.id,
+      draft.title,
+      draft.source_type,
+      draft.source_label,
+      draft.report_month,
+      draft.source_snapshot_id,
+    ),
+    None => (
+      String::new(),
+      String::new(),
+      "manual".to_string(),
+      "手动回执".to_string(),
+      String::new(),
+      String::new(),
+    ),
+  };
+
+  let envelope = HermesTaskResultEnvelope {
+    id: result_id.clone(),
+    draft_id: draft_id.clone(),
+    draft_title: draft_title.clone(),
+    title: title.clone(),
+    status: status.clone(),
+    summary: summary.clone(),
+    source_type: source_type.clone(),
+    source_label: source_label.clone(),
+    report_month: report_month.clone(),
+    source_snapshot_id: source_snapshot_id.clone(),
+    payload_json: payload_value,
+    generated_at: generated_at.clone(),
+  };
+
+  let file_name = format!(
+    "{}-hermes-result-{}-{}-{}.json",
+    sanitize_filename(app_name),
+    timestamp_slug(),
+    result_suffix,
+    sanitize_filename(&title),
+  );
+  let payload_path = outbox_dir.join(file_name);
+  let payload_body = serde_json::to_string_pretty(&envelope).context("serialize hermes result envelope")?;
+  fs::write(&payload_path, payload_body).context("write hermes result payload")?;
+  let payload_size_bytes = fs::metadata(&payload_path)
+    .context("read hermes result payload metadata")?
+    .len() as i64;
+
+  let updated_at = generated_at.clone();
+  connection
+    .execute(
+      r#"
+      INSERT INTO hermes_task_results (
+        id, draft_id, draft_title, title, status, summary, source_type, source_label,
+        report_month, source_snapshot_id, payload_json, payload_path, payload_size_bytes,
+        generated_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      "#,
+      rusqlite::params![
+        &result_id,
+        &draft_id,
+        &draft_title,
+        &title,
+        &status,
+        &summary,
+        &source_type,
+        &source_label,
+        &report_month,
+        &source_snapshot_id,
+        &payload_json_text,
+        payload_path.to_string_lossy().to_string(),
+        payload_size_bytes,
+        &generated_at,
+        &generated_at,
+        &updated_at,
+      ],
+    )
+    .context("insert hermes task result")?;
+
+  Ok(HermesTaskResultSummary {
+    id: result_id,
+    draft_id,
+    draft_title,
+    title,
+    status,
+    summary,
+    source_type,
+    source_label,
+    report_month,
+    source_snapshot_id,
+    payload_path: payload_path.to_string_lossy().to_string(),
+    payload_size_bytes,
+    generated_at,
+    created_at: updated_at.clone(),
+    updated_at,
+  })
+}
+
+pub fn delete_hermes_task_result(connection: &mut Connection, id: &str) -> Result<()> {
+  let result = load_hermes_task_result_by_id(connection, id)?.ok_or_else(|| anyhow!("Hermes 结果不存在"))?;
+  if !result.payload_path.is_empty() {
+    let payload_path = Path::new(&result.payload_path);
+    if payload_path.exists() {
+      fs::remove_file(payload_path).context("delete hermes result payload")?;
+    }
+  }
+
+  let affected = connection
+    .execute("DELETE FROM hermes_task_results WHERE id = ?", rusqlite::params![id])
+    .context("delete hermes task result")?;
+  if affected == 0 {
+    return Err(anyhow!("Hermes 结果不存在"));
+  }
   Ok(())
 }

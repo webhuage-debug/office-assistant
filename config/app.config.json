@@ -4,6 +4,7 @@
     "databaseFile": "data/smart-home-office-assistant.db",
     "exportDir": "exports",
     "uploadDir": "uploads",
-    "hermesInboxDir": "data/hermes/inbox"
+    "hermesInboxDir": "data/hermes/inbox",
+    "hermesOutboxDir": "data/hermes/outbox"
   }
 }

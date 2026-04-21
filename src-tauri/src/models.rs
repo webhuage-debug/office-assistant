@@ -464,12 +464,46 @@ pub struct HermesTaskDraftSummary {
   pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesTaskResultInput {
+  pub draft_id: Option<String>,
+  pub title: String,
+  pub status: String,
+  pub summary: String,
+  pub payload_json: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesTaskResultSummary {
+  pub id: String,
+  pub draft_id: String,
+  pub draft_title: String,
+  pub title: String,
+  pub status: String,
+  pub summary: String,
+  pub source_type: String,
+  pub source_label: String,
+  pub report_month: String,
+  pub source_snapshot_id: String,
+  pub payload_path: String,
+  pub payload_size_bytes: i64,
+  pub generated_at: String,
+  pub created_at: String,
+  pub updated_at: String,
+}
+
 fn default_hermes_source_type() -> String {
   "latestNodeReport".to_string()
 }
 
 fn default_hermes_inbox_dir() -> String {
   "data/hermes/inbox".to_string()
+}
+
+fn default_hermes_outbox_dir() -> String {
+  "data/hermes/outbox".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -480,6 +514,8 @@ pub struct StorageConfig {
   pub upload_dir: String,
   #[serde(default = "default_hermes_inbox_dir")]
   pub hermes_inbox_dir: String,
+  #[serde(default = "default_hermes_outbox_dir")]
+  pub hermes_outbox_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -499,5 +535,6 @@ pub struct ResolvedAppConfig {
   pub export_dir: String,
   pub upload_dir: String,
   pub hermes_inbox_dir: String,
+  pub hermes_outbox_dir: String,
   pub storage: StorageConfig,
 }

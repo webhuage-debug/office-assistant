@@ -3,6 +3,7 @@ export interface StorageConfig {
   exportDir: string;
   uploadDir: string;
   hermesInboxDir: string;
+  hermesOutboxDir: string;
 }
 
 export interface AppConfig {
@@ -18,6 +19,7 @@ export interface ResolvedAppConfig {
   exportDir: string;
   uploadDir: string;
   hermesInboxDir: string;
+  hermesOutboxDir: string;
   storage: StorageConfig;
 }
 

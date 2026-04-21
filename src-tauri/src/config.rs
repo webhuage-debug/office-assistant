@@ -14,12 +14,8 @@ pub fn load_or_init_config(app: &AppHandle) -> Result<ResolvedAppConfig> {
 
   let config_dir = app_data_dir.join("config");
   let data_dir = app_data_dir.join("data");
-  let export_dir = app_data_dir.join("exports");
-  let upload_dir = app_data_dir.join("uploads");
   fs::create_dir_all(&config_dir).context("create config directory")?;
   fs::create_dir_all(&data_dir).context("create data directory")?;
-  fs::create_dir_all(&export_dir).context("create export directory")?;
-  fs::create_dir_all(&upload_dir).context("create upload directory")?;
 
   let config_file_path = config_dir.join("app.config.json");
   if !config_file_path.exists() {
@@ -39,9 +35,11 @@ pub fn load_or_init_config(app: &AppHandle) -> Result<ResolvedAppConfig> {
   let runtime_export_dir = app_data_dir.join(&parsed.storage.export_dir);
   let runtime_upload_dir = app_data_dir.join(&parsed.storage.upload_dir);
   let runtime_hermes_inbox_dir = app_data_dir.join(&parsed.storage.hermes_inbox_dir);
+  let runtime_hermes_outbox_dir = app_data_dir.join(&parsed.storage.hermes_outbox_dir);
   fs::create_dir_all(&runtime_export_dir).context("create runtime export directory")?;
   fs::create_dir_all(&runtime_upload_dir).context("create runtime upload directory")?;
   fs::create_dir_all(&runtime_hermes_inbox_dir).context("create runtime hermes inbox directory")?;
+  fs::create_dir_all(&runtime_hermes_outbox_dir).context("create runtime hermes outbox directory")?;
 
   Ok(ResolvedAppConfig {
     app_name: parsed.app_name,
@@ -51,6 +49,7 @@ pub fn load_or_init_config(app: &AppHandle) -> Result<ResolvedAppConfig> {
     export_dir: runtime_export_dir.to_string_lossy().to_string(),
     upload_dir: runtime_upload_dir.to_string_lossy().to_string(),
     hermes_inbox_dir: runtime_hermes_inbox_dir.to_string_lossy().to_string(),
+    hermes_outbox_dir: runtime_hermes_outbox_dir.to_string_lossy().to_string(),
     storage: parsed.storage,
   })
 }
