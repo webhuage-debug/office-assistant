@@ -15,6 +15,11 @@ fn main() {
     .setup(|app| {
       let config = config::load_or_init_config(app.handle()).expect("failed to load app config");
       db::bootstrap_database(&config.database_path).expect("failed to initialize database");
+      repositories::node_jobs::start_node_monthly_job_scheduler(
+        config.database_path.clone(),
+        config.export_dir.clone(),
+        config.app_name.clone(),
+      );
       app.manage(state::AppState { config });
       Ok(())
     })
@@ -46,7 +51,13 @@ fn main() {
       commands::import_json_backup,
       commands::export_node_monthly_report,
       commands::list_node_report_snapshots,
-      commands::get_node_report_comparison
+      commands::get_node_report_comparison,
+      commands::list_node_monthly_jobs,
+      commands::list_node_monthly_job_runs,
+      commands::create_node_monthly_job,
+      commands::update_node_monthly_job,
+      commands::delete_node_monthly_job,
+      commands::run_node_monthly_job_now,
     ])
     .run(tauri::generate_context!())
     .expect("error while running smart-home-office-assistant");

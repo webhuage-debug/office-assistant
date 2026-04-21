@@ -385,6 +385,61 @@ pub struct NodeReportComparisonSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NodeMonthlyJobSummary {
+  pub id: String,
+  pub job_name: String,
+  pub enabled: bool,
+  pub report_month_mode: String,
+  pub schedule_day: i64,
+  pub schedule_hour: i64,
+  pub schedule_minute: i64,
+  pub trigger_source: String,
+  pub keyword: String,
+  pub source_label: String,
+  pub protocol: String,
+  pub last_run_at: Option<String>,
+  pub next_run_at: Option<String>,
+  pub last_snapshot_id: String,
+  pub last_status: String,
+  pub last_error_message: String,
+  pub created_at: String,
+  pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeMonthlyJobRunSummary {
+  pub id: String,
+  pub job_id: String,
+  pub job_name: String,
+  pub report_month: String,
+  pub scheduled_for: String,
+  pub triggered_at: String,
+  pub status: String,
+  pub snapshot_id: String,
+  pub export_path: String,
+  pub error_message: String,
+  pub created_at: String,
+  pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeMonthlyJobUpsertInput {
+  pub job_name: String,
+  pub enabled: bool,
+  pub report_month_mode: String,
+  pub schedule_day: i64,
+  pub schedule_hour: i64,
+  pub schedule_minute: i64,
+  pub trigger_source: String,
+  pub keyword: String,
+  pub source_label: String,
+  pub protocol: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StorageConfig {
   pub database_file: String,
   pub export_dir: String,

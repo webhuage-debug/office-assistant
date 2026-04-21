@@ -5,6 +5,9 @@ import type {
   NodeImportBatchSummary,
   NodeImportInput,
   NodeListFilters,
+  NodeMonthlyJobRunSummary,
+  NodeMonthlyJobSummary,
+  NodeMonthlyJobUpsertInput,
   NodeReportExportInput,
   NodeReportComparisonSummary,
   NodeReportSnapshotSummary,
@@ -66,4 +69,31 @@ export async function listNodeReportSnapshots(limit = 8): Promise<NodeReportSnap
 
 export async function getNodeReportComparison(): Promise<NodeReportComparisonSummary | null> {
   return callBackend<NodeReportComparisonSummary | null>("get_node_report_comparison");
+}
+
+export async function listNodeMonthlyJobs(): Promise<NodeMonthlyJobSummary[]> {
+  return callBackend<NodeMonthlyJobSummary[]>("list_node_monthly_jobs");
+}
+
+export async function listNodeMonthlyJobRuns(limit = 10): Promise<NodeMonthlyJobRunSummary[]> {
+  return callBackend<NodeMonthlyJobRunSummary[]>("list_node_monthly_job_runs", { limit });
+}
+
+export async function createNodeMonthlyJob(input: NodeMonthlyJobUpsertInput): Promise<NodeMonthlyJobSummary> {
+  return callBackend<NodeMonthlyJobSummary>("create_node_monthly_job", { input });
+}
+
+export async function updateNodeMonthlyJob(
+  id: string,
+  input: NodeMonthlyJobUpsertInput,
+): Promise<NodeMonthlyJobSummary> {
+  return callBackend<NodeMonthlyJobSummary>("update_node_monthly_job", { id, input });
+}
+
+export async function deleteNodeMonthlyJob(id: string): Promise<void> {
+  await callBackend<void>("delete_node_monthly_job", { id });
+}
+
+export async function runNodeMonthlyJobNow(id: string): Promise<NodeMonthlyJobRunSummary> {
+  return callBackend<NodeMonthlyJobRunSummary>("run_node_monthly_job_now", { id });
 }

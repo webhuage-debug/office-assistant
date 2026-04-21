@@ -190,6 +190,43 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
         UNIQUE(snapshot_id, node_id)
       );
 
+      CREATE TABLE IF NOT EXISTS node_monthly_jobs (
+        id TEXT PRIMARY KEY,
+        job_name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        report_month_mode TEXT NOT NULL DEFAULT 'previous',
+        schedule_day INTEGER NOT NULL DEFAULT 1,
+        schedule_hour INTEGER NOT NULL DEFAULT 9,
+        schedule_minute INTEGER NOT NULL DEFAULT 0,
+        trigger_source TEXT NOT NULL DEFAULT 'scheduler',
+        keyword TEXT NOT NULL DEFAULT '',
+        source_label TEXT NOT NULL DEFAULT '',
+        protocol TEXT NOT NULL DEFAULT '',
+        last_run_at TEXT,
+        next_run_at TEXT,
+        last_snapshot_id TEXT NOT NULL DEFAULT '',
+        last_status TEXT NOT NULL DEFAULT 'pending',
+        last_error_message TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS node_monthly_job_runs (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        job_name TEXT NOT NULL,
+        report_month TEXT NOT NULL,
+        scheduled_for TEXT NOT NULL,
+        triggered_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        snapshot_id TEXT NOT NULL DEFAULT '',
+        export_path TEXT NOT NULL DEFAULT '',
+        error_message TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(job_id) REFERENCES node_monthly_jobs(id) ON DELETE CASCADE
+      );
+
       CREATE INDEX IF NOT EXISTS idx_projects_project_no ON projects(project_no);
       CREATE INDEX IF NOT EXISTS idx_projects_customer_name ON projects(customer_name);
       CREATE INDEX IF NOT EXISTS idx_projects_phone ON projects(phone);
@@ -213,6 +250,10 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
       CREATE INDEX IF NOT EXISTS idx_node_report_snapshots_created_at ON node_report_snapshots(created_at);
       CREATE INDEX IF NOT EXISTS idx_node_report_items_snapshot_id ON node_report_items(snapshot_id);
       CREATE INDEX IF NOT EXISTS idx_node_report_items_node_id ON node_report_items(node_id);
+      CREATE INDEX IF NOT EXISTS idx_node_monthly_jobs_enabled ON node_monthly_jobs(enabled);
+      CREATE INDEX IF NOT EXISTS idx_node_monthly_jobs_next_run_at ON node_monthly_jobs(next_run_at);
+      CREATE INDEX IF NOT EXISTS idx_node_monthly_job_runs_job_id ON node_monthly_job_runs(job_id);
+      CREATE INDEX IF NOT EXISTS idx_node_monthly_job_runs_created_at ON node_monthly_job_runs(created_at);
       "#,
     )
     .context("create sqlite schema")?;

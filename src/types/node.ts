@@ -182,3 +182,52 @@ export interface NodeReportComparisonSummary {
   unchangedNodes: number;
   changeRows: NodeReportChangeSummary[];
 }
+
+export interface NodeMonthlyJobSummary {
+  id: string;
+  jobName: string;
+  enabled: boolean;
+  reportMonthMode: string;
+  scheduleDay: number;
+  scheduleHour: number;
+  scheduleMinute: number;
+  triggerSource: string;
+  keyword: string;
+  sourceLabel: string;
+  protocol: string;
+  lastRunAt?: string | null;
+  nextRunAt?: string | null;
+  lastSnapshotId: string;
+  lastStatus: string;
+  lastErrorMessage: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NodeMonthlyJobRunSummary {
+  id: string;
+  jobId: string;
+  jobName: string;
+  reportMonth: string;
+  scheduledFor: string;
+  triggeredAt: string;
+  status: string;
+  snapshotId: string;
+  exportPath: string;
+  errorMessage: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NodeMonthlyJobUpsertInput {
+  jobName: string;
+  enabled: boolean;
+  reportMonthMode: string;
+  scheduleDay: number;
+  scheduleHour: number;
+  scheduleMinute: number;
+  triggerSource: string;
+  keyword: string;
+  sourceLabel: string;
+  protocol: string;
+}

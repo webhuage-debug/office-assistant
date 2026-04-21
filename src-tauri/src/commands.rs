@@ -5,9 +5,9 @@ use crate::models::{
   NodeEntrySummary, NodeImportBatchSummary, NodeImportInput, NodeListFilters, NodeOverviewStats, NodeReportExportInput,
   NodeTestRequest, NodeTestResultSummary, NodeTestRunDetail, NodeTestRunSummary, ProjectDetail, ProjectFilters,
   ProjectSummary, ProjectUpsertInput, NodeQualityStats, NodeQualitySummary, NodeReportComparisonSummary,
-  NodeReportSnapshotSummary,
+  NodeReportSnapshotSummary, NodeMonthlyJobRunSummary, NodeMonthlyJobSummary, NodeMonthlyJobUpsertInput,
 };
-use crate::repositories::{backup, cad, nodes, projects};
+use crate::repositories::{backup, cad, node_jobs, nodes, projects};
 use crate::state::AppState;
 use tauri::State;
 
@@ -250,4 +250,62 @@ pub fn get_node_report_comparison(
   let connection = open_connection(std::path::Path::new(&state.config.database_path))
     .map_err(|error| error.to_string())?;
   nodes::get_node_report_comparison(&connection).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_node_monthly_jobs(state: State<'_, AppState>) -> Result<Vec<NodeMonthlyJobSummary>, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  node_jobs::list_node_monthly_jobs(&connection).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_node_monthly_job_runs(
+  state: State<'_, AppState>,
+  limit: Option<i64>,
+) -> Result<Vec<NodeMonthlyJobRunSummary>, String> {
+  let connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  node_jobs::list_node_monthly_job_runs(&connection, limit.unwrap_or(10)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn create_node_monthly_job(
+  state: State<'_, AppState>,
+  input: NodeMonthlyJobUpsertInput,
+) -> Result<NodeMonthlyJobSummary, String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  node_jobs::create_node_monthly_job(&mut connection, &input).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn update_node_monthly_job(
+  state: State<'_, AppState>,
+  id: String,
+  input: NodeMonthlyJobUpsertInput,
+) -> Result<NodeMonthlyJobSummary, String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  node_jobs::update_node_monthly_job(&mut connection, &id, &input).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_node_monthly_job(state: State<'_, AppState>, id: String) -> Result<(), String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  node_jobs::delete_node_monthly_job(&mut connection, &id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn run_node_monthly_job_now(state: State<'_, AppState>, id: String) -> Result<NodeMonthlyJobRunSummary, String> {
+  let mut connection = open_connection(std::path::Path::new(&state.config.database_path))
+    .map_err(|error| error.to_string())?;
+  node_jobs::run_node_monthly_job_now(
+    &mut connection,
+    std::path::Path::new(&state.config.export_dir),
+    &state.config.app_name,
+    &id,
+  )
+  .map_err(|error| error.to_string())
 }
